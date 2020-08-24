@@ -5,8 +5,7 @@ channels:
 dependencies:
     - python=3.7
     - pip
-    - cudatoolkit=10.1
-    - tensorflow-gpu==2.2.0
+    - cudatoolkit
     - numpy
     - matplotlib
     - imageio
