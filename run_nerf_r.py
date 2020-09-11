@@ -16,6 +16,7 @@ from run_nerf_helpers import *
 from utils.load_llff import load_llff_data
 from utils.load_deepvoxels import load_dv_data
 from utils.load_blender import load_blender_data
+from utils.load_shapenet import load_shapenet_data
 tf.compat.v1.enable_eager_execution()
 
 
@@ -46,6 +47,8 @@ def compute_features(input_image, input_pose, encoder):
 
 def run_network(inputs, input_image, input_pose, viewdirs, network_fn, embed_fn, embeddirs_fn, netchunk=1024*64, feature=None):
     """Prepares inputs and applies network 'fn'."""
+
+    # print(f'Query coordinate is {inputs[0].numpy()}')
 
     inputs_flat = tf.reshape(inputs, [-1, inputs.shape[-1]])
 
@@ -194,6 +197,9 @@ def render_rays(ray_batch,
 
     # Extract ray origin, direction.
     rays_o, rays_d = ray_batch[:, 0:3], ray_batch[:, 3:6]  # [N_rays, 3] each
+
+    # TODO: find out if this affects original nerf
+    rays_d = ray_batch[:, 8:] # use normalized rays_d
 
     # Extract unit-normalized viewing direction.
     viewdirs = ray_batch[:, -3:] if ray_batch.shape[-1] > 8 else None
@@ -382,7 +388,7 @@ def render_path(render_poses, hwf, chunk, render_kwargs, input_image=None, gt_im
         print(i, time.time() - t)
         t = time.time()
         rgb, disp, acc, feature, _ = render(
-            H, W, focal, image=input_image, chunk=chunk, c2w=c2w[:3, :4], **render_kwargs)
+            H, W, focal, image=input_image, pose=c2w[:3, :4], chunk=chunk, c2w=c2w[:3, :4], **render_kwargs)
         rgbs.append(rgb.numpy())
         disps.append(disp.numpy())
         if i == 0:
@@ -401,6 +407,7 @@ def render_path(render_poses, hwf, chunk, render_kwargs, input_image=None, gt_im
     disps = np.stack(disps, 0)
 
     return rgbs, disps
+
 
 def create_nerf(args, hwf):
     """Instantiate NeRF's MLP model."""
@@ -504,6 +511,8 @@ def config_parser():
                         default='./data/llff/fern', help='input data directory')
 
     # training options
+    parser.add_argument("--train_num", type=int, default=None,
+                        help='number of views used for training')
     parser.add_argument("--netdepth", type=int, default=8,
                         help='layers in network')
     parser.add_argument("--netwidth", type=int, default=256,
@@ -612,6 +621,16 @@ def config_parser():
     parser.add_argument("--feature_len", type=int, default=256,
                         help='length of feature vector extracted from image')
 
+    # shapenet options
+    parser.add_argument("--shapenet_train", type=int, default=5,
+                        help='number of shapenet objects used to train')
+    parser.add_argument("--shapenet_val", type=int, default=2,
+                        help='number of shapenet objects used to validate')
+    parser.add_argument("--shapenet_test", type=int, default=1,
+                        help='number of shapenet objects used to test')
+    parser.add_argument("--fix_objects", type=str, action='append', default=None,
+                        help='use specified objects')
+
     return parser
 
 
@@ -637,15 +656,31 @@ def train():
         near = 2.
         far = 6.
 
-        # TODO: what is it doing? doesn't seem very important
-        if args.white_bkgd:
-            images = images[..., :3]*images[..., -1:] + (1.-images[..., -1:])
-        else:
-            images = images[..., :3]
+    elif args.dataset_type == 'shapenet':
+        sample_nums = (args.shapenet_train, args.shapenet_val, args.shapenet_test)
+        images, poses, render_poses, hwf, i_split, obj_split = load_shapenet_data(
+                        args.datadir, args.half_res, args.quarter_res, 
+                        sample_nums=sample_nums, fix_objects=args.fix_objects)
+        print('Loaded shapenet', images.shape,
+              render_poses.shape, hwf, args.datadir)
+        i_train, i_val, i_test = i_split
 
+        # TODO: find out if this works
+        near = 0.
+        far = 1.3
     else:
         print('Unknown dataset type', args.dataset_type, 'exiting')
         return
+
+    # remove the alpha channel from image
+    if args.white_bkgd and images[0].shape[-1] > 3:
+        images = images[..., :3]*images[..., -1:] + (1.-images[..., -1:])
+    else:
+        images = images[..., :3]
+
+    if args.train_num is not None and args.train_num < len(i_train):
+        i_train = i_train[:args.train_num]
+
 
 
     # Cast intrinsics to right types
@@ -720,9 +755,12 @@ def train():
         # [(N-1)*H*W, ro+rd+rgb, 3]
         rays_rgb = np.reshape(rays_rgb, [-1, 3, 3])
         rays_rgb = rays_rgb.astype(np.float32)
-        print('shuffle rays')
-        np.random.shuffle(rays_rgb)
-        print('done')
+        # if args.dataset_type == 'shapenet':
+        #     print('not shuffling rays as input data is shapenet')
+        # else:
+        #     print('shuffle rays')
+        #     np.random.shuffle(rays_rgb)
+        #     print('done')
         i_batch = 0
 
     N_iters = 200000
@@ -736,7 +774,7 @@ def train():
     else:
         print("Not using rotation")
         
-    rays_rgb = np.reshape(rays_rgb,[-1,H,W,3,3])
+    rays_rgb = np.reshape(rays_rgb,[-1, H, W, 3, 3])
 
     # Summary writers
     writer = tf.contrib.summary.create_file_writer(
@@ -751,7 +789,17 @@ def train():
             # in order to apply rotation equivariant, need to pick two images from train set
             # if training with multiple objects, this part of code needs to be further modifed
 
-            img_i, target_i = np.random.choice(i_train,2,replace=False)
+            if args.dataset_type == 'shapenet' and sample_nums != (1,0,0):
+                # need to make sure two images are from same object
+                # if using single object, same as lego data
+                obj_i = np.random.choice(np.arange(0, args.shapenet_train), 1)[0]
+                img_i, target_i = np.random.choice(obj_split[obj_i], 2, replace=False)
+
+            else:
+                img_i, target_i = np.random.choice(i_train, 2, replace=False)
+                
+            target_j = np.where(i_train==target_i)[0][0]
+            # j is the index in rays_rgb
             input_img = images[img_i]
             target_img = images[target_i]
             pose = poses[img_i, :3, :4]
@@ -767,7 +815,7 @@ def train():
             select_inds = tf.gather_nd(coords, select_inds[:, tf.newaxis])
 
             # select rays using pose of target image
-            batch = tf.gather_nd(rays_rgb[target_i], select_inds) # [N_rand,3,3]
+            batch = tf.gather_nd(rays_rgb[target_j], select_inds) # [N_rand,3,3]
             batch_rays, target_s = batch[:,:2,:], batch[:,2,:]
             batch_rays = tf.transpose(batch_rays,[1,0,2])
 
@@ -851,6 +899,7 @@ def train():
                 save_weights(models[k], k, i)
 
         if i % args.i_testset == 0 and i > 0:
+            # TODO: check if test works
             testsavedir = os.path.join(
                 basedir, expname, 'testset_{:06d}'.format(i))
             os.makedirs(testsavedir, exist_ok=True)

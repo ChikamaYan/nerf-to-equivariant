@@ -12,7 +12,9 @@ from run_nerf_helpers import *
 from utils.load_llff import load_llff_data
 from utils.load_deepvoxels import load_dv_data
 from utils.load_blender import load_blender_data
+from utils.load_shapenet import load_shapenet_data
 tf.compat.v1.enable_eager_execution()
+np.set_printoptions(suppress=True)
 
 
 def batchify(fn, chunk):
@@ -474,6 +476,8 @@ def config_parser():
                         default='./data/llff/fern', help='input data directory')
 
     # training options
+    parser.add_argument("--train_num", type=int, default=None,
+                    help='number of views used for training')
     parser.add_argument("--netdepth", type=int, default=8,
                         help='layers in network')
     parser.add_argument("--netwidth", type=int, default=256,
@@ -572,9 +576,15 @@ def config_parser():
     parser.add_argument("--i_video",   type=int, default=50000,
                         help='frequency of render_poses video saving')
 
-    # rotation equivariant option
-    parser.add_argument("--use_rotation",action='store_true',
-                        help='use rotation equivariant for training')
+    # shapenet options
+    parser.add_argument("--shapenet_train", type=int, default=5,
+                        help='number of shapenet objects used to train')
+    parser.add_argument("--shapenet_val", type=int, default=2,
+                        help='number of shapenet objects used to validate')
+    parser.add_argument("--shapenet_test", type=int, default=1,
+                        help='number of shapenet objects used to test')
+    parser.add_argument("--fix_objects", type=str, action='append', default=None,
+                        help='use specified objects')
 
     return parser
 
@@ -629,7 +639,6 @@ def train():
         near = 2.
         far = 6.
 
-        # TODO: what is it doing? doesn't seem very important
         if args.white_bkgd:
             images = images[..., :3]*images[..., -1:] + (1.-images[..., -1:])
         else:
@@ -649,9 +658,159 @@ def train():
         near = hemi_R-1.
         far = hemi_R+1.
 
+    elif args.dataset_type == 'shapenet':
+        sample_nums = (args.shapenet_train, args.shapenet_val, args.shapenet_test)
+        images, poses, render_poses, hwf, i_split, obj_split = load_shapenet_data(
+                        args.datadir,
+                        sample_nums=sample_nums, fix_objects=args.fix_objects)
+        print('Loaded shapenet', images.shape,
+              render_poses.shape, hwf, args.datadir)
+        i_train, i_val, i_test = i_split
+
+        # TODO: find out if this works
+        near = 0.
+        far = 1.3
+
+        force_pose = False
+        # force poses
+        if force_pose:
+            print("FORCING POSES")
+            poses = np.array([[[-0.983, 0.101, -0.154, -0.805],
+                                [-0.184, -0.470, 0.863, 4.271],
+                                [0.014, 0.877, 0.481, -0.160],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.925, 0.200, -0.323, -1.647],
+                                [-0.379, -0.444, 0.812, 4.023],
+                                [0.019, 0.874, 0.486, -0.132],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.828, 0.292, -0.479, -2.431],
+                                [-0.560, -0.399, 0.726, 3.602],
+                                [0.021, 0.870, 0.493, -0.092],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.695, 0.370, -0.617, -3.124],
+                                [-0.719, -0.334, 0.610, 3.023],
+                                [0.019, 0.867, 0.498, -0.068],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.529, 0.443, -0.723, -3.666],
+                                [-0.848, -0.254, 0.465, 2.304],
+                                [0.022, 0.860, 0.510, -0.011],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.343, 0.479, -0.808, -4.091],
+                                [-0.939, -0.161, 0.303, 1.490],
+                                [0.015, 0.863, 0.505, -0.028],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.140, 0.509, -0.850, -4.296],
+                                [-0.990, -0.060, 0.128, 0.608],
+                                [0.014, 0.859, 0.512, 0.000],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.066, 0.511, -0.857, -4.328],
+                                [-0.998, 0.045, -0.050, -0.288],
+                                [0.013, 0.858, 0.513, 0.004],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.268, 0.496, -0.826, -4.169],
+                                [-0.963, 0.148, -0.224, -1.164],
+                                [0.011, 0.855, 0.518, 0.024],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.459, 0.456, -0.762, -3.854],
+                                [-0.888, 0.245, -0.388, -1.991],
+                                [0.010, 0.855, 0.518, 0.031],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.633, 0.388, -0.670, -3.402],
+                                [-0.774, 0.332, -0.539, -2.755],
+                                [0.013, 0.860, 0.510, 0.012],
+                                [0.000, 0.000, 0.000, 1.000]],
+
+                            [[0.781, 0.307, -0.544, -2.770],
+                                [-0.625, 0.403, -0.669, -3.411],
+                                [0.014, 0.862, 0.507, 0.003],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.893, 0.224, -0.390, -1.990],
+                                [-0.450, 0.462, -0.764, -3.898],
+                                [0.009, 0.858, 0.513, 0.033],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.967, 0.129, -0.220, -1.132],
+                                [-0.255, 0.503, -0.826, -4.218],
+                                [0.004, 0.855, 0.519, 0.060],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.999, 0.022, -0.042, -0.231],
+                                [-0.047, 0.511, -0.859, -4.367],
+                                [0.003, 0.860, 0.511, 0.024],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.987, -0.085, 0.134, 0.661],
+                                [0.158, 0.502, -0.850, -4.321],
+                                [0.005, 0.861, 0.509, 0.013],
+                                [0.000, 0.000, 0.000, 1.000]],
+
+                            [[0.931, -0.183, 0.315, 1.557],
+                                [0.364, 0.462, -0.808, -4.102],
+                                [0.002, 0.868, 0.497, -0.024],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.840, -0.280, 0.465, 2.330],
+                                [0.542, 0.423, -0.726, -3.690],
+                                [0.006, 0.862, 0.507, 0.016],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.712, -0.363, 0.601, 3.040],
+                                [0.702, 0.360, -0.614, -3.134],
+                                [0.006, 0.860, 0.511, 0.042],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.551, -0.428, 0.716, 3.645],
+                                [0.835, 0.282, -0.473, -2.422],
+                                [0.001, 0.859, 0.513, 0.062],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.367, -0.469, 0.804, 4.106],
+                                [0.930, 0.191, -0.313, -1.598],
+                                [-0.007, 0.862, 0.506, 0.042],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[0.165, -0.502, 0.849, 4.343],
+                                [0.986, 0.092, -0.137, -0.690],
+                                [-0.009, 0.860, 0.511, 0.061],
+                                [0.000, 0.000, 0.000, 1.000]],
+
+                            [[-0.041, -0.507, 0.861, 4.407],
+                                [0.999, -0.012, 0.040, 0.230],
+                                [-0.010, 0.862, 0.507, 0.043],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.247, -0.486, 0.838, 4.291],
+                                [0.969, -0.114, 0.220, 1.163],
+                                [-0.012, 0.867, 0.499, 0.010],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.441, -0.457, 0.772, 3.949],
+                                [0.897, -0.213, 0.387, 2.034],
+                                [-0.013, 0.864, 0.504, 0.034],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.620, -0.402, 0.674, 3.440],
+                                [0.785, -0.301, 0.542, 2.839],
+                                [-0.015, 0.865, 0.502, 0.025],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.768, -0.331, 0.549, 2.793],
+                                [0.641, -0.378, 0.668, 3.500],
+                                [-0.013, 0.865, 0.502, 0.023],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.884, -0.246, 0.397, 2.000],
+                                [0.466, -0.436, 0.770, 4.030],
+                                [-0.016, 0.866, 0.500, 0.013],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.962, -0.146, 0.232, 1.144],
+                                [0.274, -0.472, 0.838, 4.385],
+                                [-0.012, 0.870, 0.494, -0.017],
+                                [0.000, 0.000, 0.000, 1.000]],
+                            [[-0.997, -0.042, 0.058, 0.232],
+                                [0.071, -0.487, 0.871, 4.551],
+                                [-0.009, 0.873, 0.488, -0.042],
+                                [0.000, 0.000, 0.000, 1.000]]])
+
+        
+        if args.white_bkgd and images[0].shape[-1] > 3:
+            images = images[..., :3]*images[..., -1:] + (1.-images[..., -1:])
+        else:
+            images = images[..., :3]
     else:
         print('Unknown dataset type', args.dataset_type, 'exiting')
         return
+
+    if args.train_num is not None and args.train_num < len(i_train):
+        i_train = i_train[:args.train_num]
+
 
 
     # Cast intrinsics to right types
@@ -759,8 +918,6 @@ def train():
     print('TEST views are', i_test)
     print('VAL views are', i_val)
 
-    if args.use_rotation:
-        print("Start experimental run with rotation equivariant")
         
 
     # Summary writers
@@ -771,12 +928,7 @@ def train():
     for i in range(start, N_iters):
         time0 = time.time()
 
-        # Sample random ray batch
-        if args.use_rotation:
-            # in order to apply rotation equivariant, need to pick two images from train set
-            pass
-
-        elif use_batching:
+        if use_batching:
             # Random over all images
             batch = rays_rgb[i_batch:i_batch+N_rand]  # [B, 2+1, 3*?]
             batch = tf.transpose(batch, [1, 0, 2])
