@@ -628,7 +628,7 @@ def config_parser():
                         help='number of shapenet objects used to validate')
     parser.add_argument("--shapenet_test", type=int, default=1,
                         help='number of shapenet objects used to test')
-    parser.add_argument("--fix_objects", type=str, action='append', default=None,
+    parser.add_argument("--fix_objects", type=str, nargs='+', default=None,
                         help='use specified objects')
 
     return parser
@@ -658,16 +658,33 @@ def train():
 
     elif args.dataset_type == 'shapenet':
         sample_nums = (args.shapenet_train, args.shapenet_val, args.shapenet_test)
-        images, poses, render_poses, hwf, i_split, obj_split = load_shapenet_data(
+        images, poses, render_poses, hwf, i_split, obj_indices, obj_names, obj_split = load_shapenet_data(
                         args.datadir, args.half_res, args.quarter_res, 
                         sample_nums=sample_nums, fix_objects=args.fix_objects)
         print('Loaded shapenet', images.shape,
               render_poses.shape, hwf, args.datadir)
         i_train, i_val, i_test = i_split
 
-        # TODO: find out if this works
+        # TODO: tune this/find better replacement
         near = 0.
         far = 1.3
+
+        # log images
+        dataimgdir = os.path.join(args.basedir, args.expname, 'data_preview')
+        os.makedirs(dataimgdir, exist_ok=True)
+        for i in range(len(obj_indices)):
+            index = obj_indices[i][0]
+
+            prefix = ''
+            if i in obj_split[0]:
+                prefix = 'train'
+            elif i in obj_split[1]:
+                prefix = 'val'
+            elif i in obj_split[2]:
+                prefix = 'test'
+
+            imageio.imwrite(os.path.join(dataimgdir, '{}_{}.png'.format(prefix, obj_names[i])), to8b(images[index]))
+
     else:
         print('Unknown dataset type', args.dataset_type, 'exiting')
         return
@@ -755,13 +772,6 @@ def train():
         # [(N-1)*H*W, ro+rd+rgb, 3]
         rays_rgb = np.reshape(rays_rgb, [-1, 3, 3])
         rays_rgb = rays_rgb.astype(np.float32)
-        # if args.dataset_type == 'shapenet':
-        #     print('not shuffling rays as input data is shapenet')
-        # else:
-        #     print('shuffle rays')
-        #     np.random.shuffle(rays_rgb)
-        #     print('done')
-        i_batch = 0
 
     N_iters = 200000
     print('Begin')
@@ -793,13 +803,14 @@ def train():
                 # need to make sure two images are from same object
                 # if using single object, same as lego data
                 obj_i = np.random.choice(np.arange(0, args.shapenet_train), 1)[0]
-                img_i, target_i = np.random.choice(obj_split[obj_i], 2, replace=False)
+                img_i, target_i = np.random.choice(obj_indices[obj_i], 2, replace=False)
 
             else:
                 img_i, target_i = np.random.choice(i_train, 2, replace=False)
                 
             target_j = np.where(i_train==target_i)[0][0]
             # j is the index in rays_rgb
+            # needed because rays_rgb only contain rays info for train imgs
             input_img = images[img_i]
             target_img = images[target_i]
             pose = poses[img_i, :3, :4]
@@ -921,43 +932,52 @@ def train():
                     tf.contrib.summary.scalar('psnr0', psnr0)
 
             if i % args.i_img == 0:
-
                 # Log a rendered validation view to Tensorboard
-                img_i = np.random.choice(i_val)
-                target = images[img_i]
-                pose = poses[img_i, :3, :4]
+                # if shapenet, val with all val objects
+                img_is = []
+                if args.dataset_type == 'shapenet' and len(obj_split[1]) > 0:
+                    for obj_i in obj_split[1]:
+                        img_is.append((np.random.choice(obj_indices[obj_i]),obj_i))
+                else:
+                    img_is = (np.random.choice(i_val), 0)
 
-                rgb, disp, acc, feature, extras = render(H, W, focal, chunk=args.chunk, c2w=pose, image=images[img_i], pose=pose,
-                                                **render_kwargs_test)
 
-                psnr = mse2psnr(img2mse(rgb, target))
-                
-                # Save out the validation image for Tensorboard-free monitoring
-                testimgdir = os.path.join(basedir, expname, 'tboard_val_imgs')
-                if i==0:
-                    os.makedirs(testimgdir, exist_ok=True)
-                imageio.imwrite(os.path.join(testimgdir, '{:06d}.png'.format(i)), to8b(rgb))
+                for img_i, obj_i in img_is:
+                    target = images[img_i]
+                    pose = poses[img_i, :3, :4]
 
-                with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
+                    rgb, disp, acc, feature, extras = render(H, W, focal, chunk=args.chunk, c2w=pose, image=images[img_i], pose=pose,
+                                                    **render_kwargs_test)
 
-                    tf.contrib.summary.image('rgb', to8b(rgb)[tf.newaxis])
-                    tf.contrib.summary.image(
-                        'disp', disp[tf.newaxis, ..., tf.newaxis])
-                    tf.contrib.summary.image(
-                        'acc', acc[tf.newaxis, ..., tf.newaxis])
-
-                    tf.contrib.summary.scalar('psnr_holdout', psnr)
-                    tf.contrib.summary.image('rgb_holdout', target[tf.newaxis])
-
-                if args.N_importance > 0:
+                    psnr = mse2psnr(img2mse(rgb, target))
+                    
+                    # Save out the validation image for Tensorboard-free monitoring
+                    testimgdir = os.path.join(basedir, expname, 'tboard_val_imgs')
+                    if i==0:
+                        os.makedirs(testimgdir, exist_ok=True)
+                    imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_{}.png'.format(i, obj_i)), to8b(rgb))
+                    imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_{}_ground_truth.png'.format(i, obj_i)), to8b(target))
 
                     with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
+
+                        tf.contrib.summary.image('rgb_obj_{}'.format(obj_i), to8b(rgb)[tf.newaxis])
                         tf.contrib.summary.image(
-                            'rgb0', to8b(extras['rgb0'])[tf.newaxis])
+                            'disp_obj_{}'.format(obj_i), disp[tf.newaxis, ..., tf.newaxis])
                         tf.contrib.summary.image(
-                            'disp0', extras['disp0'][tf.newaxis, ..., tf.newaxis])
-                        tf.contrib.summary.image(
-                            'z_std', extras['z_std'][tf.newaxis, ..., tf.newaxis])
+                            'acc_obj_{}'.format(obj_i), acc[tf.newaxis, ..., tf.newaxis])
+
+                        tf.contrib.summary.scalar('psnr_holdout_obj_{}'.format(obj_i), psnr)
+                        tf.contrib.summary.image('rgb_holdout_obj_{}'.format(obj_i), target[tf.newaxis])
+
+                    if args.N_importance > 0:
+
+                        with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
+                            tf.contrib.summary.image(
+                                'rgb0_obj_{}'.format(obj_i), to8b(extras['rgb0'])[tf.newaxis])
+                            tf.contrib.summary.image(
+                                'disp0_obj_{}'.format(obj_i), extras['disp0'][tf.newaxis, ..., tf.newaxis])
+                            tf.contrib.summary.image(
+                                'z_std_obj_{}'.format(obj_i), extras['z_std'][tf.newaxis, ..., tf.newaxis])
 
         global_step.assign_add(1)
 
