@@ -3,12 +3,7 @@ import numpy as np
 import tensorflow as tf
 import imageio
 from utils.load_blender import pose_spherical
-from utils.load_llff import recenter_poses
-import h5py
 
-rot90y = np.array([[0, 0, -1],
-                   [0, 1, 0],
-                   [1, 0, 0]], dtype=np.float32)
 rot66z = np.array([[0.407, 0.914, 0.000, 0],
                 [-0.914, 0.407, -0.000, 0],
                 [-0.000, 0.000, 1.000, 0],
@@ -26,28 +21,28 @@ def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', half_res=F
 
     if fix_objects is not None:
         print('Using specified objects')
-        objs = np.array(fix_objects)
+        objs = np.array(fix_objects[0].split())
     else:
         objs = [obj_name for obj_name in os.listdir(imgs_dir)
                 if os.path.isdir(os.path.join(imgs_dir, obj_name))]
         objs = np.random.choice(objs, np.sum(sample_nums), replace=False)
 
-    focal = 210  # DISN fix this to 35 -- this is blender default!
+    focal = 210  # look for blender default!
 
     if sample_nums == (1, 0, 0):
         # signle object mode, doesn't allow i_test
         SINGLE_OBJ = True
-        i_split = [[], [], []]
+        obj_split = [[], [], []]
         print('Using single object mode')
     else:
         # replaced with split?
         sample_counts = [0, sample_nums[0], sample_nums[0] +
                          sample_nums[1], sum(sample_nums)]
-        i_split = [np.arange(sample_counts[i], sample_counts[i+1])
+        obj_split = [np.arange(sample_counts[i], sample_counts[i+1])
                    for i in range(3)]
 
     # tracks the indices for each object
-    obj_split = []
+    obj_indices = []
 
     for obj in objs:
         rendering_path = os.path.join(basedir,'syn_rgb', obj)
@@ -68,9 +63,10 @@ def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', half_res=F
             all_imgs.append(imageio.imread(os.path.join(rendering_path, rendering_name)))
             pose = np.loadtxt(os.path.join(pose_path, poses[i]))
             all_poses.append(pose)
-        obj_split.append(imgs_indices)
+        obj_indices.append(imgs_indices)
 
-    obj_split = np.array(obj_split)
+    obj_indices = np.array(obj_indices)
+    i_split = [[],[],[]]
 
     if SINGLE_OBJ:
         print(f'Object for training is:{objs}')
@@ -80,12 +76,13 @@ def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', half_res=F
         i_split[2] = np.array([])
 
     else:
-        print(f'Objects for training are:{objs[i_split[0]]}')
-        print(f'Objects for validation are:{objs[i_split[1]]}')
-        print(f'Objects for testing are:{objs[i_split[2]]}\n')
-        # convert object indices in i_split to image indices
-        for i in range(len(i_split)):
-            i_split[i] = np.concatenate(obj_split[i_split[i]]) if len(i_split[i]) > 0 else np.array([])
+        print(f'Objects for training are:{objs[obj_split[0]]}')
+        print(f'Objects for validation are:{objs[obj_split[1]]}')
+        print(f'Objects for testing are:{objs[obj_split[2]]}\n')
+        # convert object indices in obj_split to i_split
+
+        for i in range(len(obj_split)):
+            i_split[i] = np.concatenate(obj_indices[obj_split[i]]) if len(obj_split[i]) > 0 else np.array([])
 
     render_poses = tf.stack([pose_spherical(angle, -30.0, 4.0)
                              for angle in np.linspace(-180, 180, 40+1)[:-1]], 0)
@@ -103,9 +100,7 @@ def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', half_res=F
     all_imgs = np.array(all_imgs).astype(np.float32)
     all_imgs = all_imgs/255.
     all_poses = np.array(all_poses)
-    # all_poses = recenter_poses(all_poses)
     all_poses = all_poses.astype(np.float32)
-    # all_poses = rot66z @ all_poses
 
-    return all_imgs, all_poses, render_poses, [H, W, focal], i_split, obj_split
+    return all_imgs, all_poses, render_poses, [H, W, focal], i_split, obj_indices, objs, obj_split
 
