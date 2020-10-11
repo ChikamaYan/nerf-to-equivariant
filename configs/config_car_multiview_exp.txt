@@ -1,4 +1,4 @@
-expname = car_blender_multiview_exp
+expname = car_blender_multiview_exp_2
 basedir = ./logs
 datadir = ./data/shapenet/blender_renderings/
 dataset_type = shapenet

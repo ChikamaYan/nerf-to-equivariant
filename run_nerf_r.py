@@ -905,7 +905,7 @@ def train():
         dec_vars = models['decoder'].trainable_variables
         if 'decoder_fine' in models:
             dec_vars += models['decoder_fine'].trainable_variables
-        gradients = tape.gradient(img_loss, dec_vars)
+        gradients = tape.gradient(overall_loss, dec_vars)
         zips += list(zip(gradients, dec_vars))
         optimizer.apply_gradients(zips)
 
