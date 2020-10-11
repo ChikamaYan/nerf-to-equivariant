@@ -220,21 +220,21 @@ def init_nerf_r_models(D=8, W=256, D_rotation=3, input_ch_image=(400, 400, 3), i
     pretrained_model.trainable = False
     feature_vector = pretrained_model(feature_vector)
 
-    feature_vector = dense(feature_len)(feature_vector)
+    # feature_vector = dense(feature_len)(feature_vector)
     
     print("feature_vector shape is:")
     print(feature_vector.shape)
 
     # apply MLP to do rotation
-    feature_vector = tf.concat([feature_vector,input_poses], -1)
-    for i in range(D_rotation):
-        feature_vector = dense(W)(feature_vector)
+    # feature_vector = tf.concat([feature_vector,input_poses], -1)
+    # for i in range(D_rotation):
+    #     feature_vector = dense(W)(feature_vector)
     outputs_encoder = dense(feature_len, act=None)(feature_vector)
 
     model_encoder = tf.keras.Model(inputs=inputs_encoder, outputs=outputs_encoder)
 
-
-    # MLP for predicting rbg and density
+    # -----------------------------------------------
+    # Decoder MLP for predicting rbg and density
     inputs = tf.keras.Input(shape=(input_ch_coord + input_ch_views + feature_len,))
     inputs_pts, inputs_views, features = tf.split(inputs, [input_ch_coord, input_ch_views, feature_len], -1)
     inputs_pts.set_shape([None, input_ch_coord])
