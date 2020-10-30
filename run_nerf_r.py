@@ -999,6 +999,5 @@ def train():
 
         global_step.assign_add(1)
 
-
 if __name__ == '__main__':
     train()
