@@ -874,16 +874,16 @@ def train():
                 img_loss += img_loss0
                 psnr0 = mse2psnr(img_loss0)
 
+            overall_loss = img_loss
+            tape.watch(overall_loss)
             # Compute MSE for rotation
-            rot_loss = 0
+            rot_loss = tf.constant(0,dtype="float32")
             if args.use_rotation:
                 feature_target = compute_features(target_img, target_pose, render_kwargs_train['network_fn']['encoder'])
                 rot_loss = tf.keras.losses.MeanSquaredError()(feature_target, feature)
 
-            # compute the sum of loss
-            overall_loss = img_loss
-            tape.watch(overall_loss)
-            overall_loss += rot_loss
+                # compute the sum of loss
+                overall_loss += rot_loss
 
 
         enc_vars = models['encoder'].trainable_variables
