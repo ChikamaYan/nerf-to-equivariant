@@ -258,8 +258,8 @@ def init_nerf_r_models(D=8, W=256, D_rotation=3, input_ch_image=(400, 400, 3), i
         outputs = inputs_viewdirs
         for i in range(1):
             outputs = dense(W//2)(outputs)
-        outputs = dense(3, act=None)(outputs)
-        # this outputs is r,g,b of target point
+        outputs = dense(1, act=None)(outputs)
+        # this output is grayscale of target point
         outputs = tf.concat([outputs, alpha_out], -1)
     else:
         print("Error: must use viewdirs for nerf_r model!")

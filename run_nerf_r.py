@@ -12,6 +12,7 @@ import imageio
 import json
 import random
 import time
+import cv2
 from run_nerf_helpers import *
 from utils.load_llff import load_llff_data
 from utils.load_deepvoxels import load_dv_data
@@ -152,17 +153,17 @@ def render_rays(ray_batch,
         dists = dists * tf.linalg.norm(rays_d[..., None, :], axis=-1)
 
         # Extract RGB of each sample position along each ray.
-        rgb = tf.math.sigmoid(raw[..., :3])  # [N_rays, N_samples, 3]
+        rgb = tf.math.sigmoid(raw[..., :1])  # [N_rays, N_samples, 3]
 
         # Add noise to model's predictions for density. Can be used to 
         # regularize network during training (prevents floater artifacts).
         noise = 0.
         if raw_noise_std > 0.:
-            noise = tf.random.normal(raw[..., 3].shape) * raw_noise_std
+            noise = tf.random.normal(raw[..., -1].shape) * raw_noise_std
 
         # Predict density of each sample along each ray. Higher values imply
         # higher likelihood of being absorbed at this point.
-        alpha = raw2alpha(raw[..., 3] + noise, dists)  # [N_rays, N_samples]
+        alpha = raw2alpha(raw[..., -1] + noise, dists)  # [N_rays, N_samples]
 
         # Compute weight for RGB of each sample along each ray.  A cumprod() is
         # used to express the idea of the ray not having reflected up to this
@@ -634,6 +635,8 @@ def config_parser():
                         help='train with all train_objs, but val using different views of the same objs')
     parser.add_argument("--val_all", action='store_true',
                         help='during validation, use all val objects')
+    parser.add_argument("--grayscale", action='store_true',
+                        help='use grayscale images only')
 
     return parser
 
@@ -642,6 +645,12 @@ def train():
 
     parser = config_parser()
     args = parser.parse_args()
+
+    if not args.grayscale:
+        print("This branch has been made only compatible with grayscale baseline. Aborting.")
+        return
+
+    print("RUNNING GRAYSCALE BASELINE")
     
     if args.random_seed is not None:
         print('Fixing random seed', args.random_seed)
@@ -669,6 +678,10 @@ def train():
               render_poses.shape, hwf, args.datadir)
         i_train, i_val, i_test = i_split
 
+        # convert to grayscale
+        for i in range(images.shape[0]):
+            images[i,...] = cv2.cvtColor(images[i,...], cv2.COLOR_BGR2GRAY)[...,None]
+
         # TODO: tune this/find better replacement
         near = 0.
         far = 1.3
@@ -684,7 +697,6 @@ def train():
                 i_val = np.concatenate([i_val, img_ids[picks]])
                 i_train = np.concatenate([i_train, np.delete(img_ids,picks)])
                 obj_indices[obj_i] = np.delete(obj_indices[obj_i], picks)
-
 
 
         # log images
@@ -885,7 +897,8 @@ def train():
                 # compute the sum of loss
                 overall_loss += rot_loss
 
-
+        # TODO: fix none gradient here!
+        # need to look into tape.gradient -- the loss might have not been applied correctly
         enc_vars = models['encoder'].trainable_variables
         gradients = tape.gradient(overall_loss, enc_vars)
         zips = list(zip(gradients, enc_vars))
