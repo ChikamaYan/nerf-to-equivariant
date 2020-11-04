@@ -1,6 +1,6 @@
-expname = car_blender_no_rot_mlp_large_train
+expname = sofa
 basedir = ./logs
-datadir = ./data/shapenet/blender_renderings/
+datadir = ./data/shapenet/ShapeNetRendering/04256520/
 dataset_type = shapenet
 random_seed = 42
 
@@ -22,8 +22,7 @@ netchunk = 1024
 i_video = 50000000
 i_weights = 1000
 i_img = 1000
-i_testset = 100000
 
-shapenet_train = 35
-shapenet_val = 5
-shapenet_test = 0
+shapenet_train = 5
+shapenet_val = 2
+shapenet_test = 1
