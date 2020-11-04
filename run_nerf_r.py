@@ -64,7 +64,7 @@ def run_network(inputs, input_image, input_pose, viewdirs, network_fn, embed_fn,
     if feature is None:
         feature = compute_features(input_image, input_pose, network_fn['encoder'])
     
-    embedded = tf.concat([embedded, np.tile(feature, [embedded.shape[0],1])], -1)
+    embedded = tf.concat([embedded, tf.tile(feature, [embedded.shape[0],1])], -1)
 
     outputs_flat = batchify(network_fn['decoder'], netchunk)(embedded)
     outputs = tf.reshape(outputs_flat, list(
@@ -617,7 +617,7 @@ def config_parser():
 
     # rotation equivariant option
     parser.add_argument("--use_rotation", action='store_true',
-                        help='use rotation equivariant for training')
+                        help='use target+source equivariant for training')
     parser.add_argument("--feature_len", type=int, default=256,
                         help='length of feature vector extracted from image')
 
@@ -816,37 +816,23 @@ def train():
             pose = poses[img_i, :3, :4]
             target_pose = poses[target_i, :3, :4]
 
-            # defines the transformation matrix from img_i viewpoint to target_i viewpoint
-            # transformation = np.linalg.inv( poses[img_i]) @ poses[target_i]
-
-            # select ray indices for training
-            coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
-            coords = tf.reshape(coords, [-1, 2])
-            select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)
-            select_inds = tf.gather_nd(coords, select_inds[:, tf.newaxis])
-
-            # select rays using pose of target image
-            batch = tf.gather_nd(rays_rgb[target_j], select_inds) # [N_rand,3,3]
-            batch_rays, target_s = batch[:,:2,:], batch[:,2,:]
-            batch_rays = tf.transpose(batch_rays,[1,0,2])
-
         else:
             # don't use rotation, but still input image + coordinates
             img_i = np.random.choice(i_train,1)[0]
+            target_j = img_i
             input_img = images[img_i]
             target_img = images[img_i]
             pose = poses[img_i, :3, :4]
 
-            # select ray indices for training
-            coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
-            coords = tf.reshape(coords, [-1, 2])
-            select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)
-            select_inds = tf.gather_nd(coords, select_inds[:, tf.newaxis])
-
-            # select rays using pose of target image
-            batch = tf.gather_nd(rays_rgb[img_i], select_inds) # [N_rand,3,3]
-            batch_rays, target_s = batch[:,:2,:], batch[:,2,:]
-            batch_rays = tf.transpose(batch_rays,[1,0,2])
+        # select ray indices for training
+        coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
+        coords = tf.reshape(coords, [-1, 2])
+        select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)
+        select_inds = tf.gather_nd(coords, select_inds[:, tf.newaxis])
+        # select rays using pose of target image
+        batch = tf.gather_nd(rays_rgb[target_j], select_inds) # [N_rand,3,3]
+        batch_rays, target_s = batch[:,:2,:], batch[:,2,:]
+        batch_rays = tf.transpose(batch_rays,[1,0,2])
 
         #####  Core optimization loop  #####
 
@@ -870,14 +856,16 @@ def train():
                 img_loss += img_loss0
                 psnr0 = mse2psnr(img_loss0)
 
-            # Compute MSE for rotation
-            feature_target = compute_features(target_img, target_pose, render_kwargs_train['network_fn']['encoder'])
-            rot_loss = tf.keras.losses.MeanSquaredError()(feature_target, feature)
-
-            # compute the sum of loss
             overall_loss = img_loss
             tape.watch(overall_loss)
-            overall_loss += rot_loss
+            # Compute MSE for rotation
+            rot_loss = tf.constant(0,dtype="float32")
+            if args.use_rotation:
+                feature_target = compute_features(target_img, target_pose, render_kwargs_train['network_fn']['encoder'])
+                rot_loss = tf.keras.losses.MeanSquaredError()(feature_target, feature)
+
+                # compute the sum of loss
+                overall_loss += rot_loss
 
 
         enc_vars = models['encoder'].trainable_variables

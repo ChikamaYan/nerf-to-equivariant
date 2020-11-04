@@ -4,8 +4,8 @@ def del_ckpts(basedir='./logs/', expname=''):
     if expname == '':
         exps = [exp
                 for exp in os.listdir(basedir)
-                if os.path.isdir(os.path.join(basedir, exp))]
-        exps.remove('summaries')
+                if os.path.isdir(os.path.join(basedir, exp)) and not exp.startswith('summaries')]
+        # exps.remove('summaries')
 
         # print(exps)
         for exp in exps:
