@@ -9,4 +9,3 @@ data/*
 logs/*
 .vscode
 jupyter_notebooks/features
-logs.zip
