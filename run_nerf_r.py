@@ -630,6 +630,10 @@ def config_parser():
                         help='number of shapenet objects used to test')
     parser.add_argument("--fix_objects", type=str, nargs='+', default=None,
                         help='use specified objects')
+    parser.add_argument("--view_val", action='store_true',
+                        help='train with all train_objs, but val using different views of the same objs')
+    parser.add_argument("--val_all", action='store_true',
+                        help='during validation, use all val objects')
 
     return parser
 
@@ -668,6 +672,20 @@ def train():
         # TODO: tune this/find better replacement
         near = 0.
         far = 1.3
+
+
+        if args.view_val:
+            # drop all given vals, pick 0, 8, 16, 24 from each object in train
+            picks = np.array([0,8,16,24],dtype=int)
+            i_train = np.array([],dtype=int)
+            i_val = np.array([],dtype=int)
+            for obj_i in obj_split[0]:
+                img_ids = np.array(obj_indices[obj_i])
+                i_val = np.concatenate([i_val, img_ids[picks]])
+                i_train = np.concatenate([i_train, np.delete(img_ids,picks)])
+                obj_indices[obj_i] = np.delete(obj_indices[obj_i], picks)
+
+
 
         # log images
         dataimgdir = os.path.join(args.basedir, args.expname, 'data_preview')
@@ -887,7 +905,7 @@ def train():
         dec_vars = models['decoder'].trainable_variables
         if 'decoder_fine' in models:
             dec_vars += models['decoder_fine'].trainable_variables
-        gradients = tape.gradient(img_loss, dec_vars)
+        gradients = tape.gradient(overall_loss, dec_vars)
         zips += list(zip(gradients, dec_vars))
         optimizer.apply_gradients(zips)
 
@@ -919,7 +937,7 @@ def train():
                         gt_imgs=images[i_test], savedir=testsavedir)
             print('Saved test set')
 
-        if i % args.i_print == 0 or i < 10:
+        if i % args.i_print == 0 or i < 10 or i % args.i_img == 0:
 
             print(f'{expname}, iter {i}, psnr {psnr.numpy()}, img_loss {img_loss.numpy()}, rot_loss{rot_loss.numpy()}, global_step {global_step.numpy()}')
             print('iter time {:.05f}'.format(dt))
@@ -935,11 +953,11 @@ def train():
                 # Log a rendered validation view to Tensorboard
                 # if shapenet, val with all val objects
                 img_is = []
-                if args.dataset_type == 'shapenet' and len(obj_split[1]) > 0:
+                if args.dataset_type == 'shapenet' and len(obj_split[1]) > 0 and args.val_all:
                     for obj_i in obj_split[1]:
                         img_is.append((np.random.choice(obj_indices[obj_i]),obj_i))
                 else:
-                    img_is = (np.random.choice(i_val), 0)
+                    img_is = [(np.random.choice(i_val), 0)]
 
 
                 for img_i, obj_i in img_is:
@@ -980,7 +998,6 @@ def train():
                                 'z_std_obj_{}'.format(obj_i), extras['z_std'][tf.newaxis, ..., tf.newaxis])
 
         global_step.assign_add(1)
-
 
 if __name__ == '__main__':
     train()

@@ -1,4 +1,4 @@
-expname = car_blender_no_rot_mlp
+expname = car_blender_multiview_exp_2
 basedir = ./logs
 datadir = ./data/shapenet/blender_renderings/
 dataset_type = shapenet
@@ -28,4 +28,4 @@ shapenet_val = 3
 shapenet_test = 0
 
 fix_objects = 1a0bc9ab92c915167ae33d942430658c 1a1dcd236a1e6133860800e6696b8284 1a1de15e572e039df085b75b20c2db33 1a3b35be7a0acb2d9f2366ce3e663402 1a4ef4a2a639f172f13d1237e1429e9e 1a7b9697be903334b99755e16c4a9d21 1a7d2c9d3a084885afa2ee0adc62d22 1a15dff06b073d7282a2d03a8c21b1d6 1a48d03a977a6f0aeda0253452893d75 1a56d596c77ad5936fa87a658faf1d26 1a63a260180f11baafe717997470b28d 1a759c0122847d985c08d463d5424c88 1a6fca5e59b00eba250a73fdbcda6406 1a0c91c02ef35fbe68f60a737d94994a
-val_all = True
+view_val = True
