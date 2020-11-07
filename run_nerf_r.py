@@ -65,7 +65,7 @@ def run_network(inputs, input_image, input_pose, viewdirs, network_fn, embed_fn,
     if feature is None:
         feature = compute_features(input_image, input_pose, network_fn['encoder'])
     
-    embedded = tf.concat([embedded, np.tile(feature, [embedded.shape[0],1])], -1)
+    embedded = tf.concat([embedded, tf.tile(feature, [embedded.shape[0],1])], -1)
 
     outputs_flat = batchify(network_fn['decoder'], netchunk)(embedded)
     outputs = tf.reshape(outputs_flat, list(

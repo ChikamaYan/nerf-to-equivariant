@@ -1,4 +1,4 @@
-expname = car_blender_single_view_train
+expname = car_blender_single_view_train_bug_fix
 basedir = ./logs
 datadir = ./data/shapenet/blender_renderings/
 dataset_type = shapenet
