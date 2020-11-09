@@ -1,4 +1,4 @@
-expname = car_blender_no_rot_mlp_large_train
+expname = car_blender_no_rot_mlp_large_train_bug_fix
 basedir = ./logs
 datadir = ./data/shapenet/blender_renderings/
 dataset_type = shapenet
