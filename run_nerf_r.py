@@ -614,6 +614,8 @@ def config_parser():
                         help='frequency of testset saving')
     parser.add_argument("--i_video",   type=int, default=50000,
                         help='frequency of render_poses video saving')
+    parser.add_argument("--i_log_target",   type=int, default=99999999999,
+                        help='frequency of generating a image for a target image from training dataset')
 
     # rotation equivariant option
     parser.add_argument("--use_rotation", action='store_true',
@@ -841,6 +843,7 @@ def train():
             input_img = images[img_i]
             target_img = images[img_i]
             pose = poses[img_i, :3, :4]
+            target_pose = pose
 
         # select ray indices for training
         coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
@@ -911,9 +914,46 @@ def train():
             np.save(path, net.get_weights())
             print('saved weights at', path)
 
-        if i % args.i_weights == 0:
+        if i % args.i_weights == 0 and i > 0:
             for k in models:
                 save_weights(models[k], k, i)
+
+
+        if i % args.i_video == 0 and i > 0:
+            viddir = os.path.join(basedir, expname, 'videos')
+            os.makedirs(viddir, exist_ok=True)
+
+            rgbs, disps = render_path(
+                render_poses, hwf, args.chunk, render_kwargs_test,input_image=target_img)
+            print('Done, saving', rgbs.shape, disps.shape)
+            moviebase = os.path.join(
+                viddir, '{}_spiral_{:06d}_train'.format(expname, i))
+            imageio.mimwrite(moviebase + 'rgb.mp4',
+                             to8b(rgbs), fps=30, quality=8)
+            imageio.mimwrite(moviebase + 'disp.mp4',
+                             to8b(disps / np.max(disps)), fps=30, quality=8)
+            imageio.imwrite(os.path.join(viddir, '{:06d}_ground_truth_train.png'.format(i)), to8b(target_img))
+            
+            # generate video for val object
+            img_i = np.random.choice(i_val)
+            rgbs, disps = render_path(
+                render_poses, hwf, args.chunk, render_kwargs_test,input_image=images[img_i])
+            print('Done, saving', rgbs.shape, disps.shape)
+            moviebase = os.path.join(
+                viddir, '{}_spiral_{:06d}_val'.format(expname, i))
+            imageio.mimwrite(moviebase + 'rgb.mp4',
+                             to8b(rgbs), fps=30, quality=8)
+            imageio.mimwrite(moviebase + 'disp.mp4',
+                             to8b(disps / np.max(disps)), fps=30, quality=8)
+            imageio.imwrite(os.path.join(viddir, '{:06d}_ground_truth_val.png'.format(i)), to8b(images[img_i]))
+
+            # if args.use_viewdirs:
+            #     render_kwargs_test['c2w_staticcam'] = render_poses[0][:3, :4]
+            #     rgbs_still, _ = render_path(
+            #         render_poses, hwf, args.chunk, render_kwargs_test,input_image=input_img)
+            #     render_kwargs_test['c2w_staticcam'] = None
+            #     imageio.mimwrite(moviebase + 'rgb_still.mp4',
+            #                      to8b(rgbs_still), fps=30, quality=8)
 
         if i % args.i_testset == 0 and i > 0:
             # TODO: check if test works
@@ -924,6 +964,29 @@ def train():
             render_path(poses[i_test], hwf, args.chunk, render_kwargs_test, input_image=input_img,
                         gt_imgs=images[i_test], savedir=testsavedir)
             print('Saved test set')
+
+        if i % args.i_log_target == 0:
+            # Log a rendered train view to Tensorboard
+            rgb, _, _, _, _ = render(H, W, focal, chunk=args.chunk, c2w=target_pose, image=target_img, pose=target_pose,
+                                                    **render_kwargs_test)
+            # Save out the validation image for Tensorboard-free monitoring
+            testimgdir = os.path.join(basedir, expname, 'tboard_train_imgs')
+            if i==0:
+                os.makedirs(testimgdir, exist_ok=True)
+            imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj.png'.format(i)), to8b(rgb))
+            imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_ground_truth.png'.format(i)), to8b(target_img))
+
+            mse = img2mse(rgb, target_img)
+            psnr = mse2psnr(mse)
+
+            with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
+                tf.contrib.summary.image('rgb_train', to8b(rgb)[tf.newaxis])
+
+                tf.contrib.summary.scalar('psnr_train_img', psnr)
+                tf.contrib.summary.scalar('loss_train_img', mse)
+                tf.contrib.summary.image('rgb_train_img', target_img[tf.newaxis])
+
+
 
         if i % args.i_print == 0 or i < 10 or i % args.i_img == 0:
 
@@ -952,10 +1015,11 @@ def train():
                     target = images[img_i]
                     pose = poses[img_i, :3, :4]
 
-                    rgb, disp, acc, feature, extras = render(H, W, focal, chunk=args.chunk, c2w=pose, image=images[img_i], pose=pose,
+                    rgb, disp, acc, feature, extras = render(H, W, focal, chunk=args.chunk, c2w=pose, image=target, pose=pose,
                                                     **render_kwargs_test)
 
-                    psnr = mse2psnr(img2mse(rgb, target))
+                    mse = img2mse(rgb, target)
+                    psnr = mse2psnr(mse)
                     
                     # Save out the validation image for Tensorboard-free monitoring
                     testimgdir = os.path.join(basedir, expname, 'tboard_val_imgs')
@@ -973,6 +1037,7 @@ def train():
                             'acc_obj_{}'.format(obj_i), acc[tf.newaxis, ..., tf.newaxis])
 
                         tf.contrib.summary.scalar('psnr_holdout_obj_{}'.format(obj_i), psnr)
+                        tf.contrib.summary.scalar('loss_holdout_obj_{}'.format(obj_i), mse)
                         tf.contrib.summary.image('rgb_holdout_obj_{}'.format(obj_i), target[tf.newaxis])
 
                     if args.N_importance > 0:

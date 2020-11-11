@@ -2,12 +2,65 @@ import os
 import numpy as np
 import tensorflow as tf
 import imageio
-from utils.load_blender import pose_spherical
+# from utils.load_blender import pose_spherical
 
-rot66z = np.array([[0.407, 0.914, 0.000, 0],
-                [-0.914, 0.407, -0.000, 0],
-                [-0.000, 0.000, 1.000, 0],
-                [0, 0, 0, 1]])
+# blender coord system
+# z
+# ^   ^ y
+# |  /
+# | /
+# |/
+# ---------> x
+
+# OpenGL coord system
+# y
+# ^   ^ -z
+# |  /
+# | /
+# |/
+# ---------> x
+
+# translation in z axis by t
+trans_t = lambda t : tf.convert_to_tensor([
+    [1,0,0,0],
+    [0,1,0,0],
+    [0,0,1,t],
+    [0,0,0,1],
+], dtype=tf.float32)
+
+rot_x = lambda phi : tf.convert_to_tensor([
+    [1,0,0,0],
+    [0,tf.cos(phi),-tf.sin(phi),0],
+    [0,tf.sin(phi), tf.cos(phi),0],
+    [0,0,0,1],
+], dtype=tf.float32)
+
+rot_y = lambda th : tf.convert_to_tensor([
+    [tf.cos(th),0,tf.sin(th),0],
+    [0,1,0,0],
+    [-tf.sin(th),0, tf.cos(th),0],
+    [0,0,0,1],
+], dtype=tf.float32)
+
+rot_z = lambda th : tf.convert_to_tensor([
+    [tf.cos(th),-tf.sin(th),0,0],
+    [tf.sin(th),tf.cos(th),0,0],
+    [0,0,1,0],
+    [0,0,0,1],
+], dtype=tf.float32)
+
+
+def pose_spherical(azimuth, elevation, radius):
+    azimuth, elevation = fix_rotation(azimuth,elevation)
+    # print(f'Rotations in xyz are: {elevation},{0},{azimuth}')
+    c2w = trans_t(radius)
+    c2w =  rot_z(azimuth) @ rot_y(0.0) @ rot_x(elevation) @ c2w
+    # order of rotation is reversed here due to intristic/extrisict rotations -- not sure
+    return c2w
+
+
+def fix_rotation(azimuth, elevation):
+    return (90 + azimuth) * np.pi/180.0, (90 - elevation) * np.pi/180.0
 
 
 def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', half_res=False, quarter_res=False, sample_nums=(5, 2, 1), fix_objects=None):
@@ -84,7 +137,7 @@ def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', half_res=F
         for i in range(len(obj_split)):
             i_split[i] = np.concatenate(obj_indices[obj_split[i]]) if len(obj_split[i]) > 0 else np.array([])
 
-    render_poses = tf.stack([pose_spherical(angle, -30.0, 4.0)
+    render_poses = tf.stack([pose_spherical(angle, 30.0, 1.0)
                              for angle in np.linspace(-180, 180, 40+1)[:-1]], 0)
     # render poses for videos and render only experiments
 
