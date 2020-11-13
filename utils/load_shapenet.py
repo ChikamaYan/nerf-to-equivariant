@@ -88,7 +88,6 @@ def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', half_res=F
         obj_split = [[], [], []]
         print('Using single object mode')
     else:
-        # replaced with split?
         sample_counts = [0, sample_nums[0], sample_nums[0] +
                          sample_nums[1], sum(sample_nums)]
         obj_split = [np.arange(sample_counts[i], sample_counts[i+1])

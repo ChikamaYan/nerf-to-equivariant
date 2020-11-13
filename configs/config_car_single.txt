@@ -1,4 +1,4 @@
-expname = car_single_blender
+expname = car_single
 basedir = ./logs
 datadir = ./data/shapenet/blender_renderings/
 dataset_type = shapenet
@@ -26,4 +26,4 @@ i_img = 1000
 shapenet_train = 1
 shapenet_val = 0
 shapenet_test = 0
-fix_objects = 1a0bc9ab92c915167ae33d942430658c
+fix_objects = 4b858be7de4e9eb1546b7395fb17f97e

@@ -10,3 +10,4 @@ logs/*
 .vscode
 jupyter_notebooks/features
 logs.zip
+summaries_backup
