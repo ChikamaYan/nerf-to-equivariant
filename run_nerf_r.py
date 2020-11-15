@@ -425,7 +425,8 @@ def create_nerf(args, hwf):
     encoder, decoder = init_nerf_r_models(
         D=args.netdepth, W=args.netwidth, input_ch_image=(hwf[0],hwf[1],3),
         input_ch_coord=input_ch, output_ch=output_ch, skips=skips,
-        input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs, feature_len=args.feature_len)
+        input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs, 
+        feature_len=args.feature_len, rot_mlp=args.use_rot_mlp, D_rotation=args.rot_mlp_depth)
     models = {'encoder': encoder, 'decoder': decoder}
 
     # fine model: only fine decoder needed
@@ -434,7 +435,8 @@ def create_nerf(args, hwf):
         _ , decoder_fine = init_nerf_r_models(
             D=args.netdepth, W=args.netwidth, input_ch_image=(hwf[0],hwf[1],3),
             input_ch_coord=input_ch, output_ch=output_ch, skips=skips,
-            input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs, feature_len=args.feature_len)
+            input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs, 
+            feature_len=args.feature_len, rot_mlp=args.use_rot_mlp, D_rotation=args.rot_mlp_depth)
         models['decoder_fine'] = decoder_fine
 
 
@@ -620,6 +622,10 @@ def config_parser():
     # rotation equivariant option
     parser.add_argument("--use_rotation", action='store_true',
                         help='use target+source equivariant for training')
+    parser.add_argument("--use_rot_mlp", action='store_true',
+                        help='use rotational MLP to rotate feature')
+    parser.add_argument("--rot_mlp_depth", type=int, default=2,
+                        help='depth of rotational MLP to rotate feature')
     parser.add_argument("--feature_len", type=int, default=256,
                         help='length of feature vector extracted from image')
 

@@ -193,7 +193,7 @@ def init_nerf_res_model(D=8, W=256, input_ch_image=(400, 400, 3), input_ch_coord
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
     return model
 
-def init_nerf_r_models(D=8, W=256, D_rotation=3, input_ch_image=(400, 400, 3), input_ch_pose=(3,4), input_ch_coord=3, input_ch_views=3, output_ch=4, skips=[4], use_viewdirs=False, feature_len=256):
+def init_nerf_r_models(D=8, W=256, D_rotation=2, input_ch_image=(400, 400, 3), input_ch_pose=(3,4), input_ch_coord=3, input_ch_views=3, output_ch=4, skips=[4], use_viewdirs=False, feature_len=256, rot_mlp=False):
     # what is input ch views? -- input channel number for viewing direction
     # cos positional encoding is also put on viewing direction as well
 
@@ -220,15 +220,11 @@ def init_nerf_r_models(D=8, W=256, D_rotation=3, input_ch_image=(400, 400, 3), i
     pretrained_model.trainable = False
     feature_vector = pretrained_model(feature_vector)
 
-    # feature_vector = dense(feature_len)(feature_vector)
-    
-    print("feature_vector shape is:")
-    print(feature_vector.shape)
-
     # apply MLP to do rotation
-    # feature_vector = tf.concat([feature_vector,input_poses], -1)
-    # for i in range(D_rotation):
-    #     feature_vector = dense(W)(feature_vector)
+    if rot_mlp:
+        feature_vector = tf.concat([feature_vector,input_poses], -1)
+        for i in range(D_rotation):
+            feature_vector = dense(W)(feature_vector)
     outputs_encoder = dense(feature_len, act=None)(feature_vector)
 
     model_encoder = tf.keras.Model(inputs=inputs_encoder, outputs=outputs_encoder)
