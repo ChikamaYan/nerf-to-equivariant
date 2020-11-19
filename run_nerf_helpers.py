@@ -214,9 +214,9 @@ def init_nerf_r_models(D=8, W=256, D_rotation=2, input_ch_image=(400, 400, 3), i
     inputs_images = tf.reshape(inputs_images,[-1] + list(input_ch_image))
     input_poses.set_shape([None, np.prod(input_ch_pose)])
 
-    # inception res v2
-    feature_vector = tf.keras.applications.inception_resnet_v2.preprocess_input(inputs_images)
-    pretrained_model = tf.keras.applications.InceptionResNetV2(include_top=False, input_shape=input_ch_image, pooling='avg')
+    # res v2
+    feature_vector = tf.keras.applications.resnet.preprocess_input(inputs_images)
+    pretrained_model = tf.keras.applications.ResNet50(include_top=False, input_shape=input_ch_image, pooling='avg')
     pretrained_model.trainable = False
     feature_vector = pretrained_model(feature_vector)
 
