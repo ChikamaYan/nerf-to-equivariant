@@ -676,10 +676,14 @@ def train():
         print('Loaded shapenet', images.shape,
               render_poses.shape, hwf, args.datadir)
         i_train, i_val, i_test = i_split
+        # images: (n.H,W,C) array containing all images
+        # i_split: list of length 3, each element is a numpy array containing all the image ids for train/val/test
+        # obj_indices: (n_obj,n_view) array, n_obj is the number of objects, n_view is number of view points/images for each object
+        # obj_names: (n_obj) array containing the name of each object
+        # obj_split: list of len 3, each element is a numpy array containing all the object ids for trainval/test
 
-        # TODO: tune this/find better replacement
         near = 0.
-        far = 1.3
+        far = 2
 
 
         if args.view_val:
