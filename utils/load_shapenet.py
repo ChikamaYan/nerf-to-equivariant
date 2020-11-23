@@ -63,13 +63,13 @@ def fix_rotation(azimuth, elevation):
     return (90 + azimuth) * np.pi/180.0, (90 - elevation) * np.pi/180.0
 
 
-def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', resolution_scale=1, sample_nums=(5, 2, 1), fix_objects=None):
+def load_shapenet_data(basedir='./data/shapenet/depth/', resolution_scale=1., sample_nums=(5, 2, 1), fix_objects=None):
     SINGLE_OBJ = False
 
     all_imgs = []
     all_poses = []
 
-    imgs_dir = os.path.join(basedir,'syn_rgb')
+    imgs_dir = os.path.join(basedir,'syn_depth')
 
 
     if fix_objects is not None:
@@ -97,7 +97,7 @@ def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', resolution
     obj_indices = []
 
     for obj in objs:
-        rendering_path = os.path.join(basedir,'syn_rgb', obj)
+        rendering_path = os.path.join(basedir,'syn_depth', obj)
         renderings = [name for name in os.listdir(rendering_path)
                 if name.endswith('.png')]
         renderings.sort()
@@ -152,9 +152,11 @@ def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', resolution
     H = int(H * resolution_scale)
     W = int(W * resolution_scale)
     focal = focal * resolution_scale
+    all_imgs = np.array(all_imgs).astype(np.float32)
+    all_imgs = np.stack([all_imgs,all_imgs,all_imgs],axis=-1) # expand 1 channel depth value to 3 channel rgb values
     all_imgs = tf.image.resize_area(all_imgs, [H, W]).numpy()
 
-    all_imgs = np.array(all_imgs).astype(np.float32)
+    
     all_imgs = all_imgs/255.
     all_poses = np.array(all_poses)
     all_poses = all_poses.astype(np.float32)

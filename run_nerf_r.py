@@ -67,8 +67,9 @@ def run_network(inputs, input_image, input_pose, viewdirs, network_fn, embed_fn,
     embedded = tf.concat([embedded, tf.tile(feature, [embedded.shape[0],1])], -1)
 
     outputs_flat = batchify(network_fn['decoder'], netchunk)(embedded)
-    outputs = tf.reshape(outputs_flat, list(
-        inputs.shape[:-1]) + [outputs_flat.shape[-1]])
+    outputs = tf.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
+    # last element in the output shape is the output channel
+    outputs = tf.concat([outputs,outputs,outputs,outputs],axis=-1)
     return outputs, feature
 
 
@@ -236,11 +237,15 @@ def render_rays(ray_batch,
 
     # Evaluate model at each point.
     raw, feature = network_query_fn(pts, input_image, input_pose, viewdirs, network_fn)  # [N_rays, N_samples, 4]
-    rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(
+    _, disp_map, acc_map, weights, rgb_map = raw2outputs(
         raw, z_vals, rays_d)
 
+    rgb_map = tf.concat([rgb_map[:,None],rgb_map[:,None],rgb_map[:,None]],axis=-1)
+    rgb_map = rgb_map/2.
+
     if N_importance > 0:
-        rgb_map_0, disp_map_0, acc_map_0 = rgb_map, disp_map, acc_map
+        # _0 are the coarse estimation if N_impoartance > 0
+        rgb_map_0, disp_map_0, acc_map_0  = rgb_map, disp_map, acc_map
 
         # Obtain additional integration times to evaluate based on the weights
         # assigned to colors in the coarse model.
@@ -258,8 +263,12 @@ def render_rays(ray_batch,
         run_fn = network_fn if network_fine is None else {'decoder': network_fine}
         # re-use the same feature
         raw, _ = network_query_fn(pts, input_image, input_pose, viewdirs, run_fn, feature=feature)
-        rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(
+        _, disp_map, acc_map, weights, rgb_map = raw2outputs(
             raw, z_vals, rays_d)
+        
+        rgb_map = tf.concat([rgb_map[:,None],rgb_map[:,None],rgb_map[:,None]],axis=-1)
+        # normalize to fit the far/near bound
+        rgb_map = rgb_map/2.
 
     ret = {'rgb_map': rgb_map, 'disp_map': disp_map, 'acc_map': acc_map, 'feature': feature}
     if retraw:
@@ -419,7 +428,7 @@ def create_nerf(args, hwf):
     if args.use_viewdirs:
         embeddirs_fn, input_ch_views = get_embedder(
             args.multires_views, args.i_embed)
-    output_ch = 4
+    output_ch = 1
     skips = [4]
     # skip specifies the indices of layers that need skip connection
     encoder, decoder = init_nerf_r_models(
@@ -646,6 +655,9 @@ def config_parser():
     parser.add_argument("--val_all", action='store_true',
                         help='during validation, use all val objects')
 
+    parser.add_argument("--use_depth", action='store_true',
+                        help='use depth map as supervision')
+
     return parser
 
 
@@ -653,6 +665,10 @@ def train():
 
     parser = config_parser()
     args = parser.parse_args()
+
+    if not args.use_depth:
+        print("ERROR! only depth is supported on this branch for now")
+        return
     
     if args.random_seed is not None:
         print('Fixing random seed', args.random_seed)
@@ -676,14 +692,19 @@ def train():
         images, poses, render_poses, hwf, i_split, obj_indices, obj_names, obj_split = load_shapenet_data(
                         args.datadir, resolution_scale=args.resolution_scale,
                         sample_nums=sample_nums, fix_objects=args.fix_objects)
+        # images: (n.H,W,C) array containing all images
+        # i_split: list of length 3, each element is a numpy array containing all the image ids for train/val/test
+        # obj_indices: (n_obj,n_view) array, n_obj is the number of objects, n_view is number of view points/images for each object
+        # obj_names: (n_obj) array containing the name of each object
+        # obj_split: list of len 3, each element is a numpy array containing all the object ids for trainval/test
+        
         print('Loaded shapenet', images.shape,
               render_poses.shape, hwf, args.datadir)
         i_train, i_val, i_test = i_split
 
-        # TODO: tune this/find better replacement
+        # Matches with blender renderer depth clip
         near = 0.
-        far = 1.3
-
+        far = 2.
 
         if args.view_val:
             # drop all given vals, pick 0, 8, 16, 24 from each object in train
@@ -695,8 +716,6 @@ def train():
                 i_val = np.concatenate([i_val, img_ids[picks]])
                 i_train = np.concatenate([i_train, np.delete(img_ids,picks)])
                 obj_indices[obj_i] = np.delete(obj_indices[obj_i], picks)
-
-
 
         # log images
         dataimgdir = os.path.join(args.basedir, args.expname, 'data_preview')
@@ -896,9 +915,6 @@ def train():
 
                 # compute the sum of loss
                 overall_loss += rot_loss
-            
-                # compute reconstruction feature loss
-                # this is the loss between the feature extracted from target and reconstruction
                 
 
 
@@ -969,7 +985,6 @@ def train():
             #                      to8b(rgbs_still), fps=30, quality=8)
 
         if i % args.i_testset == 0 and i > 0:
-            # TODO: check if test works
             testsavedir = os.path.join(
                 basedir, expname, 'testset_{:06d}'.format(i))
             os.makedirs(testsavedir, exist_ok=True)

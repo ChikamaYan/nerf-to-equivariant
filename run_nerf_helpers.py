@@ -247,16 +247,16 @@ def init_nerf_r_models(D=8, W=256, D_rotation=2, input_ch_image=(400, 400, 3), i
 
     if use_viewdirs:
         alpha_out = dense(1, act=None)(outputs)
-        # alpha is the density of target point
-        bottleneck = dense(256, act=None)(outputs)
-        inputs_viewdirs = tf.concat(
-            [bottleneck, inputs_views], -1)  # concat viewdirs
-        outputs = inputs_viewdirs
-        for i in range(1):
-            outputs = dense(W//2)(outputs)
-        outputs = dense(3, act=None)(outputs)
-        # this outputs is r,g,b of target point
-        outputs = tf.concat([outputs, alpha_out], -1)
+        # # alpha is the density of target point
+        # bottleneck = dense(256, act=None)(outputs)
+        # inputs_viewdirs = tf.concat(
+        #     [bottleneck, inputs_views], -1)  # concat viewdirs
+        # outputs = inputs_viewdirs
+        # for i in range(1):
+        #     outputs = dense(W//2)(outputs)
+        # outputs = dense(3, act=None)(outputs)
+        # # this outputs is r,g,b of target point
+        outputs = alpha_out
     else:
         print("Error: must use viewdirs for nerf_r model!")
         return
