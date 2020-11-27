@@ -123,7 +123,9 @@ def load_shapenet_data(basedir='./data/shapenet/depth/', resolution_scale=1., sa
     if SINGLE_OBJ:
         print(f'Object for training is:{objs}')
         # TODO: shuffle views for single obj
-        i_split[1] = np.array([0,8,16,24])
+
+        i_split[1] = np.random.choice(list(range(len(all_imgs))),10,replace=False)
+        # i_split[1] = np.array([0,8,16,24])
         i_split[0] = np.array([i for i in range(len(all_imgs)) if i not in i_split[1]])
         i_split[2] = np.array([])
 

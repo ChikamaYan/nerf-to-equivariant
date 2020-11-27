@@ -704,7 +704,7 @@ def train():
 
         # Matches with blender renderer depth clip
         near = 0.
-        far = 2.
+        far = 3.
 
         if args.view_val:
             # drop all given vals, pick 0, 8, 16, 24 from each object in train
