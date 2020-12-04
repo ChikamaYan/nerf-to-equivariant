@@ -436,6 +436,8 @@ def create_nerf(args, hwf):
         input_ch_coord=input_ch, output_ch=output_ch, skips=skips,
         input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs, 
         feature_len=args.feature_len, rot_mlp=args.use_rot_mlp, D_rotation=args.rot_mlp_depth)
+    if args.fix_decoder:
+        decoder.trainable = False
     models = {'encoder': encoder, 'decoder': decoder}
 
     # fine model: only fine decoder needed
@@ -446,6 +448,8 @@ def create_nerf(args, hwf):
             input_ch_coord=input_ch, output_ch=output_ch, skips=skips,
             input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs, 
             feature_len=args.feature_len, rot_mlp=args.use_rot_mlp, D_rotation=args.rot_mlp_depth)
+        if args.fix_decoder:
+            decoder_fine.trainable = False
         models['decoder_fine'] = decoder_fine
 
 
@@ -657,6 +661,8 @@ def config_parser():
 
     parser.add_argument("--use_depth", action='store_true',
                         help='use depth map as supervision')
+    parser.add_argument("--fix_decoder", action='store_true',
+                        help='fix the weights of decoder')
 
     return parser
 
@@ -952,16 +958,16 @@ def train():
             viddir = os.path.join(basedir, expname, 'videos')
             os.makedirs(viddir, exist_ok=True)
 
-            rgbs, disps = render_path(
-                render_poses, hwf, args.chunk, render_kwargs_test,input_image=target_img)
-            print('Done, saving', rgbs.shape, disps.shape)
-            moviebase = os.path.join(
-                viddir, '{}_spiral_{:06d}_train'.format(expname, i))
-            imageio.mimwrite(moviebase + 'rgb.mp4',
-                             to8b(rgbs), fps=30, quality=8)
-            imageio.mimwrite(moviebase + 'disp.mp4',
-                             to8b(disps / np.max(disps)), fps=30, quality=8)
-            imageio.imwrite(os.path.join(viddir, '{:06d}_ground_truth_train.png'.format(i)), to8b(target_img))
+            # rgbs, disps = render_path(
+            #     render_poses, hwf, args.chunk, render_kwargs_test,input_image=target_img)
+            # print('Done, saving', rgbs.shape, disps.shape)
+            # moviebase = os.path.join(
+            #     viddir, '{}_spiral_{:06d}_train_'.format(expname, i))
+            # imageio.mimwrite(moviebase + 'rgb.mp4',
+            #                  to8b(rgbs), fps=30, quality=8)
+            # imageio.mimwrite(moviebase + 'disp.mp4',
+            #                  to8b(disps / np.max(disps)), fps=30, quality=8)
+            # imageio.imwrite(os.path.join(viddir, '{:06d}_ground_truth_train.png'.format(i)), to8b(target_img))
             
             # generate video for val object
             img_i = np.random.choice(i_val)
@@ -969,7 +975,7 @@ def train():
                 render_poses, hwf, args.chunk, render_kwargs_test,input_image=images[img_i])
             print('Done, saving', rgbs.shape, disps.shape)
             moviebase = os.path.join(
-                viddir, '{}_spiral_{:06d}_val'.format(expname, i))
+                viddir, '{}_spiral_{:06d}_val_'.format(expname, i))
             imageio.mimwrite(moviebase + 'rgb.mp4',
                              to8b(rgbs), fps=30, quality=8)
             imageio.mimwrite(moviebase + 'disp.mp4',
