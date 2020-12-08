@@ -591,7 +591,10 @@ def config_parser():
     parser.add_argument("--half_res", action='store_true',
                         help='load blender synthetic data at 400x400 instead of 800x800')
     parser.add_argument("--quarter_res", action='store_true',
-                        help='load blender synthetic data at 400x400 instead of 800x800')
+                        help='load blender synthetic data at 200x200 instead of 800x800')
+    parser.add_argument("--resolution_scale",  type=float, default='1.0',
+                        help='apply resolution scale to loaded images')
+                        
 
     # llff flags
     parser.add_argument("--factor", type=int, default=8,
@@ -671,7 +674,7 @@ def train():
     elif args.dataset_type == 'shapenet':
         sample_nums = (args.shapenet_train, args.shapenet_val, args.shapenet_test)
         images, poses, render_poses, hwf, i_split, obj_indices, obj_names, obj_split = load_shapenet_data(
-                        args.datadir, args.half_res, args.quarter_res, 
+                        args.datadir, resolution_scale=args.resolution_scale,
                         sample_nums=sample_nums, fix_objects=args.fix_objects)
         print('Loaded shapenet', images.shape,
               render_poses.shape, hwf, args.datadir)
@@ -897,6 +900,10 @@ def train():
 
                 # compute the sum of loss
                 overall_loss += rot_loss
+            
+                # compute reconstruction feature loss
+                # this is the loss between the feature extracted from target and reconstruction
+                
 
 
         enc_vars = models['encoder'].trainable_variables

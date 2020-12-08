@@ -63,7 +63,7 @@ def fix_rotation(azimuth, elevation):
     return (90 + azimuth) * np.pi/180.0, (90 - elevation) * np.pi/180.0
 
 
-def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', half_res=False, quarter_res=False, sample_nums=(5, 2, 1), fix_objects=None):
+def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', resolution_scale=1, sample_nums=(5, 2, 1), fix_objects=None):
     SINGLE_OBJ = False
 
     all_imgs = []
@@ -142,12 +142,17 @@ def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', half_res=F
 
     H, W = all_imgs[0].shape[:2]
 
-    if quarter_res or half_res:
-        factor = 4 if half_res else 2
-        H = H//factor
-        W = W//factor
-        focal = focal/float(factor)
-        all_imgs = tf.image.resize_area(all_imgs, [H, W]).numpy()
+    # if quarter_res or half_res:
+    #     factor = 4 if quarter_res else 2
+    #     H = H//factor
+    #     W = W//factor
+    #     focal = focal/float(factor)
+    #     all_imgs = tf.image.resize_area(all_imgs, [H, W]).numpy()
+
+    H = int(H * resolution_scale)
+    W = int(W * resolution_scale)
+    focal = focal * resolution_scale
+    all_imgs = tf.image.resize_area(all_imgs, [H, W]).numpy()
 
     all_imgs = np.array(all_imgs).astype(np.float32)
     all_imgs = all_imgs/255.
