@@ -962,16 +962,19 @@ def train():
             viddir = os.path.join(basedir, expname, 'videos')
             os.makedirs(viddir, exist_ok=True)
 
-            # rgbs, disps = render_path(
-            #     render_poses, hwf, args.chunk, render_kwargs_test,input_image=target_img)
-            # print('Done, saving', rgbs.shape, disps.shape)
-            # moviebase = os.path.join(
-            #     viddir, '{}_spiral_{:06d}_train_'.format(expname, i))
-            # imageio.mimwrite(moviebase + 'rgb.mp4',
-            #                  to8b(rgbs), fps=30, quality=8)
-            # imageio.mimwrite(moviebase + 'disp.mp4',
-            #                  to8b(disps / np.max(disps)), fps=30, quality=8)
-            # imageio.imwrite(os.path.join(viddir, '{:06d}_ground_truth_train.png'.format(i)), to8b(target_img))
+            # generate images for test object
+            # not needed to test time optimisation task
+            if args.test_optimise_num <= 0:
+                rgbs, disps = render_path(
+                    render_poses, hwf, args.chunk, render_kwargs_test,input_image=target_img)
+                print('Done, saving', rgbs.shape, disps.shape)
+                moviebase = os.path.join(
+                    viddir, '{}_spiral_{:06d}_train_'.format(expname, i))
+                imageio.mimwrite(moviebase + 'rgb.mp4',
+                                to8b(rgbs), fps=30, quality=8)
+                # imageio.mimwrite(moviebase + 'disp.mp4',
+                #                 to8b(disps / np.max(disps)), fps=30, quality=8)
+                imageio.imwrite(os.path.join(viddir, '{:06d}_ground_truth_train.png'.format(i)), to8b(target_img))
             
             # generate video for val object
             img_i = np.random.choice(i_val)
