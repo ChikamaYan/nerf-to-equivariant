@@ -427,6 +427,8 @@ def create_nerf(args, hwf):
         input_ch_coord=input_ch, output_ch=output_ch, skips=skips,
         input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs, 
         feature_len=args.feature_len, rot_mlp=args.use_rot_mlp, D_rotation=args.rot_mlp_depth)
+    if args.fix_decoder:
+        decoder.trainable = False
     models = {'encoder': encoder, 'decoder': decoder}
 
     # fine model: only fine decoder needed
@@ -437,6 +439,8 @@ def create_nerf(args, hwf):
             input_ch_coord=input_ch, output_ch=output_ch, skips=skips,
             input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs, 
             feature_len=args.feature_len, rot_mlp=args.use_rot_mlp, D_rotation=args.rot_mlp_depth)
+        if args.fix_decoder:
+            decoder_fine.trainable = False
         models['decoder_fine'] = decoder_fine
 
 
@@ -558,7 +562,7 @@ def config_parser():
     parser.add_argument("--perturb", type=float, default=1.,
                         help='set to 0. for no jitter, 1. for jitter')
     parser.add_argument("--use_viewdirs", action='store_true',
-                        help='use full 5D input instead of 3D')
+                        help='use full 5D input instead of 3D, must be false for current version')
     parser.add_argument("--i_embed", type=int, default=0,
                         help='set 0 for default positional encoding, -1 for none')
     parser.add_argument("--multires", type=int, default=10,
@@ -588,10 +592,6 @@ def config_parser():
     # blender flags
     parser.add_argument("--white_bkgd", action='store_true',
                         help='set to render synthetic data on a white bkgd (always use for dvoxels)')
-    parser.add_argument("--half_res", action='store_true',
-                        help='load blender synthetic data at 400x400 instead of 800x800')
-    parser.add_argument("--quarter_res", action='store_true',
-                        help='load blender synthetic data at 200x200 instead of 800x800')
     parser.add_argument("--resolution_scale",  type=float, default='1.0',
                         help='apply resolution scale to loaded images')
                         
@@ -646,6 +646,15 @@ def config_parser():
     parser.add_argument("--val_all", action='store_true',
                         help='during validation, use all val objects')
 
+    parser.add_argument("--use_depth", action='store_true',
+                        help='use depth map as supervision')
+    parser.add_argument("--fix_decoder", action='store_true',
+                        help='fix the weights of decoder')
+    parser.add_argument("--test_optimise_num", type=int, default=0,
+                    help='number of images for test time optimisation. 0 means no test opt')
+    parser.add_argument("--description", type=str, default='',
+                    help='a description of the experiment, has no effect on algorithm')
+
     return parser
 
 
@@ -653,6 +662,10 @@ def train():
 
     parser = config_parser()
     args = parser.parse_args()
+
+    if args.use_depth:
+        print("ERROR! depth is not supported on this branch for now")
+        return
     
     if args.random_seed is not None:
         print('Fixing random seed', args.random_seed)
@@ -675,7 +688,7 @@ def train():
         sample_nums = (args.shapenet_train, args.shapenet_val, args.shapenet_test)
         images, poses, render_poses, hwf, i_split, obj_indices, obj_names, obj_split = load_shapenet_data(
                         args.datadir, resolution_scale=args.resolution_scale,
-                        sample_nums=sample_nums, fix_objects=args.fix_objects)
+                        sample_nums=sample_nums, fix_objects=args.fix_objects, args=args)
         print('Loaded shapenet', images.shape,
               render_poses.shape, hwf, args.datadir)
         i_train, i_val, i_test = i_split
@@ -686,7 +699,7 @@ def train():
         # obj_split: list of len 3, each element is a numpy array containing all the object ids for trainval/test
 
         near = 0.
-        far = 2
+        far = 3.
 
 
         if args.view_val:
@@ -940,16 +953,19 @@ def train():
             viddir = os.path.join(basedir, expname, 'videos')
             os.makedirs(viddir, exist_ok=True)
 
-            rgbs, disps = render_path(
-                render_poses, hwf, args.chunk, render_kwargs_test,input_image=target_img)
-            print('Done, saving', rgbs.shape, disps.shape)
-            moviebase = os.path.join(
-                viddir, '{}_spiral_{:06d}_train'.format(expname, i))
-            imageio.mimwrite(moviebase + 'rgb.mp4',
-                             to8b(rgbs), fps=30, quality=8)
-            imageio.mimwrite(moviebase + 'disp.mp4',
-                             to8b(disps / np.max(disps)), fps=30, quality=8)
-            imageio.imwrite(os.path.join(viddir, '{:06d}_ground_truth_train.png'.format(i)), to8b(target_img))
+            # generate images for test object
+            # not needed to test time optimisation task
+            if args.test_optimise_num <= 0:
+                rgbs, disps = render_path(
+                    render_poses, hwf, args.chunk, render_kwargs_test,input_image=target_img)
+                print('Done, saving', rgbs.shape, disps.shape)
+                moviebase = os.path.join(
+                    viddir, '{}_spiral_{:06d}_train_'.format(expname, i))
+                imageio.mimwrite(moviebase + 'rgb.mp4',
+                                to8b(rgbs), fps=30, quality=8)
+                # imageio.mimwrite(moviebase + 'disp.mp4',
+                #                 to8b(disps / np.max(disps)), fps=30, quality=8)
+                imageio.imwrite(os.path.join(viddir, '{:06d}_ground_truth_train.png'.format(i)), to8b(target_img))
             
             # generate video for val object
             img_i = np.random.choice(i_val)
@@ -957,11 +973,11 @@ def train():
                 render_poses, hwf, args.chunk, render_kwargs_test,input_image=images[img_i])
             print('Done, saving', rgbs.shape, disps.shape)
             moviebase = os.path.join(
-                viddir, '{}_spiral_{:06d}_val'.format(expname, i))
+                viddir, '{}_spiral_{:06d}_val_'.format(expname, i))
             imageio.mimwrite(moviebase + 'rgb.mp4',
                              to8b(rgbs), fps=30, quality=8)
-            imageio.mimwrite(moviebase + 'disp.mp4',
-                             to8b(disps / np.max(disps)), fps=30, quality=8)
+            # imageio.mimwrite(moviebase + 'disp.mp4',
+            #                  to8b(disps / np.max(disps)), fps=30, quality=8)
             imageio.imwrite(os.path.join(viddir, '{:06d}_ground_truth_val.png'.format(i)), to8b(images[img_i]))
 
             # if args.use_viewdirs:

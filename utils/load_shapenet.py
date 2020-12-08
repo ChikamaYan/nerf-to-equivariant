@@ -63,7 +63,7 @@ def fix_rotation(azimuth, elevation):
     return (90 + azimuth) * np.pi/180.0, (90 - elevation) * np.pi/180.0
 
 
-def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', resolution_scale=1, sample_nums=(5, 2, 1), fix_objects=None):
+def load_shapenet_data(basedir='./data/shapenet/depth/', resolution_scale=1., sample_nums=(5, 2, 1), fix_objects=None, args=None):
     SINGLE_OBJ = False
 
     all_imgs = []
@@ -122,10 +122,18 @@ def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', resolution
 
     if SINGLE_OBJ:
         print(f'Object for training is:{objs}')
-        # TODO: shuffle views for single obj
-        i_split[1] = np.array([0,8,16,24])
-        i_split[0] = np.array([i for i in range(len(all_imgs)) if i not in i_split[1]])
-        i_split[2] = np.array([])
+        if args.test_optimise_num > 0:
+            print('TEST TIME OPTIMISATION EXPERIMENT')
+            print(f'train = val = {args.test_optimise_num} images')
+            input('Confirm?')
+
+            i_split[1] = np.array(list(range(args.test_optimise_num)))
+            i_split[0] = i_split[1].copy()
+            i_split[2] = np.array([])
+        else:
+            i_split[1] = np.random.choice(list(range(len(all_imgs))),10,replace=False)
+            i_split[0] = np.array([i for i in range(len(all_imgs)) if i not in i_split[1]])
+            i_split[2] = np.array([])
 
     else:
         print(f'Objects for training are:{objs[obj_split[0]]}')
@@ -141,13 +149,6 @@ def load_shapenet_data(basedir='./data/shapenet/blender_renderings/', resolution
     # render poses for videos and render only experiments
 
     H, W = all_imgs[0].shape[:2]
-
-    # if quarter_res or half_res:
-    #     factor = 4 if quarter_res else 2
-    #     H = H//factor
-    #     W = W//factor
-    #     focal = focal/float(factor)
-    #     all_imgs = tf.image.resize_area(all_imgs, [H, W]).numpy()
 
     H = int(H * resolution_scale)
     W = int(W * resolution_scale)
