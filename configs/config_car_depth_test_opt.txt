@@ -1,4 +1,4 @@
-expname = car_depth_test_optimise_enc_rot_mlp
+expname = car_depth_rot_mlp_full_image_train_2_test_opt
 basedir = ./logs
 datadir = ./data/shapenet/depth_100_5/
 dataset_type = shapenet
@@ -12,18 +12,18 @@ feature_len = 256
 
 white_bkgd = True
 
-N_rand = 1024
-N_samples = 64
-N_importance = 64
+N_rand = 10000
+N_samples = 16
+N_importance = 16
 separate_fine = False
 
-chunk = 1024
-netchunk = 1024
+chunk = 4096
+netchunk = 4096
 
-i_video = 1000
+i_video = 50
 i_weights = 9999999
-i_img = 500
-i_testset = 100000
+i_img = 10
+i_testset = 51000
 i_log_target = 9999999
 
 shapenet_train = 1
@@ -33,3 +33,4 @@ fix_objects = e9f1b2cddbbab98c4f399740a8edf805
 
 use_depth = True
 fix_decoder = True
+test_optimise_num = 2

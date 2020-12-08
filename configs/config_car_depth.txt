@@ -1,4 +1,4 @@
-expname = car_depth_rot_mlp
+expname = car_depth_rot_mlp_full_image_train
 basedir = ./logs
 datadir = ./data/shapenet/depth_100_5/
 dataset_type = shapenet
@@ -12,13 +12,13 @@ feature_len = 256
 
 white_bkgd = True
 
-N_rand = 1024
-N_samples = 32
-N_importance = 32
+N_rand = 10000
+N_samples = 16
+N_importance = 16
 separate_fine = False
 
-chunk = 1024
-netchunk = 1024
+chunk = 2048
+netchunk = 2048
 
 i_video = 30000
 i_weights = 1000
@@ -31,3 +31,5 @@ shapenet_val = 10
 shapenet_test = 0
 
 use_depth = True
+
+resolution_scale = .5

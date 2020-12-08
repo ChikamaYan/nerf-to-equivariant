@@ -663,6 +663,10 @@ def config_parser():
                         help='use depth map as supervision')
     parser.add_argument("--fix_decoder", action='store_true',
                         help='fix the weights of decoder')
+    parser.add_argument("--test_optimise_num", type=int, default=0,
+                    help='number of images for test time optimisation. 0 means no test opt')
+    parser.add_argument("--description", type=str, default='',
+                    help='a description of the experiment, has no effect on algorithm')
 
     return parser
 
@@ -697,7 +701,7 @@ def train():
         sample_nums = (args.shapenet_train, args.shapenet_val, args.shapenet_test)
         images, poses, render_poses, hwf, i_split, obj_indices, obj_names, obj_split = load_shapenet_data(
                         args.datadir, resolution_scale=args.resolution_scale,
-                        sample_nums=sample_nums, fix_objects=args.fix_objects)
+                        sample_nums=sample_nums, fix_objects=args.fix_objects, args=args)
         # images: (n.H,W,C) array containing all images
         # i_split: list of length 3, each element is a numpy array containing all the image ids for train/val/test
         # obj_indices: (n_obj,n_view) array, n_obj is the number of objects, n_view is number of view points/images for each object
@@ -978,8 +982,8 @@ def train():
                 viddir, '{}_spiral_{:06d}_val_'.format(expname, i))
             imageio.mimwrite(moviebase + 'rgb.mp4',
                              to8b(rgbs), fps=30, quality=8)
-            imageio.mimwrite(moviebase + 'disp.mp4',
-                             to8b(disps / np.max(disps)), fps=30, quality=8)
+            # imageio.mimwrite(moviebase + 'disp.mp4',
+            #                  to8b(disps / np.max(disps)), fps=30, quality=8)
             imageio.imwrite(os.path.join(viddir, '{:06d}_ground_truth_val.png'.format(i)), to8b(images[img_i]))
 
             # if args.use_viewdirs:
