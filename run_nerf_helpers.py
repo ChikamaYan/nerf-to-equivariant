@@ -246,9 +246,7 @@ def init_nerf_r_models(D=8, W=256, D_rotation=2, input_ch_image=(400, 400, 3), i
             outputs = tf.concat([inputs_pts, outputs], -1)
 
     if use_viewdirs:
-        print("Error: must not use viewdirs for current nerf_r model!")
-        return
-    else:
+        print("Note: viewdirs actually not used for current nerf_r model!")
         alpha_out = dense(1, act=None)(outputs)
         # alpha is the density of target point
         bottleneck = dense(256, act=None)(outputs)
@@ -260,6 +258,10 @@ def init_nerf_r_models(D=8, W=256, D_rotation=2, input_ch_image=(400, 400, 3), i
         outputs = dense(3, act=None)(outputs)
         # this outputs is r,g,b of target point
         outputs = tf.concat([outputs, alpha_out], -1)
+        
+    else:
+        print("Error: must specify use viewdirs as True current nerf_r model!")
+        return
 
     model_decoder = tf.keras.Model(inputs=inputs, outputs=outputs)
 

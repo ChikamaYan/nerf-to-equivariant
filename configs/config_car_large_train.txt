@@ -1,30 +1,35 @@
-expname = car_blender_no_rot_mlp_large_train_bug_fix
+expname = car_rot_mlp_full_image_train
+description = 'rotional MLP + full image training on 100x100 RGB images without view directions'
+
 basedir = ./logs
-datadir = ./data/shapenet/blender_renderings/
+datadir = ./data/shapenet/depth_100_5/
 dataset_type = shapenet
 random_seed = 42
 
 use_rotation = True
 use_viewdirs = True
 
+use_rot_mlp = True
 feature_len = 256
 
 white_bkgd = True
 
-N_rand = 1024
-N_samples = 64
-N_importance = 64
+N_rand = 6400
+N_samples = 16
+N_importance = 16
 separate_fine = False
 
-chunk = 1024
-netchunk = 1024
+chunk = 2048
+netchunk = 2048
 
-i_video = 80000
+i_video = 30000
 i_weights = 1000
 i_img = 1000
-i_testset = 100000
+i_testset = 50000
 i_log_target = 1000
 
-shapenet_train = 35
-shapenet_val = 5
+shapenet_train = 90
+shapenet_val = 10
 shapenet_test = 0
+
+resolution_scale = .4
