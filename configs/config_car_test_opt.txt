@@ -1,0 +1,39 @@
+expname = car_rot_mlp_full_image_train_test_opt_dec
+description = 'rotional MLP + full image training on 100x100 RGB images without view directions test time optimisation with 1 image'
+
+basedir = ./logs
+datadir = ./data/shapenet/depth_100_5/
+dataset_type = shapenet
+random_seed = 42
+
+use_rotation = False
+use_viewdirs = True
+
+use_rot_mlp = True
+feature_len = 256
+
+white_bkgd = True
+
+N_rand = 6400
+N_samples = 16
+N_importance = 16
+separate_fine = False
+
+chunk = 4096
+netchunk = 4096
+
+i_video = 100
+i_weights = 9999999
+i_img = 50
+i_testset = 51000
+i_log_target = 9999999
+
+shapenet_train = 1
+shapenet_val = 0
+shapenet_test = 0
+fix_objects = e9f1b2cddbbab98c4f399740a8edf805
+
+resolution_scale = .4
+
+fix_decoder = False
+test_optimise_num = 1
