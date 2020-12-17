@@ -238,12 +238,13 @@ def init_nerf_r_models(D=8, W=256, D_rotation=2, input_ch_image=(400, 400, 3), i
     features.set_shape([None, feature_len])
 
     # concate feature vector with input coordinates
-    outputs = tf.concat([inputs_pts, features], -1)
+    decoder_inputs = tf.concat([inputs_pts, features], -1)
+    outputs = decoder_inputs
 
     for i in range(D):
         outputs = dense(W)(outputs)
         if i in skips:
-            outputs = tf.concat([inputs_pts, outputs], -1)
+            outputs = tf.concat([decoder_inputs, outputs], -1)
 
     if use_viewdirs:
         alpha_out = dense(1, act=None)(outputs)

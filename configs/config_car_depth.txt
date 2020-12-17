@@ -1,4 +1,6 @@
-expname = car_depth_rot_mlp_full_image_train
+expname = car_depth_rot_mlp_full_image_train_128_feature_skip
+description = 'depth, full image train, skipped with 128 feature vector'
+
 basedir = ./logs
 datadir = ./data/shapenet/depth_100_5/
 dataset_type = shapenet
@@ -8,19 +10,19 @@ use_rotation = True
 use_viewdirs = True
 
 use_rot_mlp = True
-feature_len = 256
+feature_len = 128
 
 white_bkgd = True
 
-N_rand = 10000
+N_rand = 6400
 N_samples = 16
-N_importance = 16
+N_importance = 32
 separate_fine = False
 
-chunk = 2048
-netchunk = 2048
+chunk = 4096
+netchunk = 4096
 
-i_video = 30000
+i_video = 10000
 i_weights = 1000
 i_img = 1000
 i_testset = 90000
@@ -32,4 +34,4 @@ shapenet_test = 0
 
 use_depth = True
 
-resolution_scale = .5
+resolution_scale = .4
