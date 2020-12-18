@@ -266,12 +266,12 @@ def init_nerf_r_models(D=8, W=256, D_rotation=2, input_ch_image=(400, 400, 3), i
     return [model_encoder, model_decoder]
 
 def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), final_feature_len=128):
+
+    
     '''
     Init encoder from paper pixel nerf
     Uses a ResNet 50 pretrained auto-encoder, outputs feature from each layer concatenated
     '''
-
-    print("Initing nerf_r models")
 
     relu = tf.keras.layers.ReLU()
     def dense(W, act=relu): return tf.keras.layers.Dense(W, activation=act)
@@ -284,18 +284,14 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), final_feature_len=128)
     inputs_encoder = tf.keras.Input(shape=(np.prod(input_ch_image),))
     inputs_images = tf.reshape(inputs_encoder,[-1] + list(input_ch_image))
 
-    feature_vector = tf.keras.applications.resnet.preprocess_input(inputs_images)
+    inputs_images = tf.keras.applications.resnet.preprocess_input(inputs_images)
     pretrained_model = tf.keras.applications.ResNet50(include_top=False, input_shape=input_ch_image, pooling='avg')
     pretrained_model.trainable = True
 
-    # run in inference mode to prevent updating the bactNorm layers
-    # note that this is a feature vector and is not used -- we only use result from conv5 before avg_pool
-    final_feature = pretrained_model(feature_vector, training=False) 
-
-    min_out_layers = ['pool1_pool','conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out', 'conv5_block3_out']
-    features = []
-
-    for layer in min_out_layers:
+    # get features from middle layers
+    mid_out_layers = ['pool1_pool','conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out', 'conv5_block3_out']
+    features = []    
+    for layer in mid_out_layers:
         feature = pretrained_model.get_layer(layer).output
         features.append(feature)
 
@@ -303,12 +299,60 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), final_feature_len=128)
     HW = inputs_images.shape[1:3]
     for i, feature in enumerate(features):
         features[i] = tf.image.resize(feature, HW)
-    
     features = tf.concat(features, axis=-1)
+    pretrained_part = tf.keras.Model(inputs=pretrained_model.input, outputs=features, name='pretrained_encoder')
 
-    model_encoder = tf.keras.Model(inputs=inputs_encoder, outputs=features)
+    # run in inference mode to prevent updating the bactNorm layers
+    features = pretrained_part(inputs_images, training=False)
+    model_encoder = tf.keras.Model(inputs=inputs_encoder, outputs=features, name='encoder')
 
     return model_encoder
+
+def init_pixel_nerf_decoder(D=8, W=512, input_ch_pose=(3,4), input_ch_coord=3, input_ch_views=3, output_ch=4, skips=[4], feature_depth=256):
+    '''
+    Init decoder architecture from pixelNerf paper
+    Uses skip connections for several times
+    Take feature of shape (B, feature_depth) as input, feed that through a 128 MLP first
+    '''
+
+    relu = tf.keras.layers.ReLU()
+    def dense(W, act=relu): return tf.keras.layers.Dense(W, activation=act)
+    def conv2d(filter, kernel_size, input_shape): return tf.keras.layers.Conv2D(filter, kernel_size, padding='valid', input_shape=input_shape)
+    def maxpool(pool_size): return tf.keras.layers.MaxPool2D(pool_size)
+    def avgpool(pool_size): return tf.keras.layers.AveragePooling2D(pool_size)
+
+    input_ch_coord = int(input_ch_coord)
+    input_ch_views = int(input_ch_views)
+
+    # -----------------------------------------------
+    # Decoder MLP for predicting rbg and density
+    inputs = tf.keras.Input(shape=(input_ch_coord + input_ch_views + feature_depth,))
+    inputs_pts, inputs_views, features = tf.split(inputs, [input_ch_coord, input_ch_views, feature_depth], -1)
+    inputs_pts.set_shape([None, input_ch_coord])
+    inputs_views.set_shape([None, input_ch_views])
+    features.set_shape([None, feature_depth])
+
+    # feed features to an MLP first
+    features = dense(128)(features)
+
+    # concate feature vector with input coordinates
+    decoder_inputs = tf.concat([inputs_pts,inputs_views, features], -1)
+    decoder_inputs_len = decoder_inputs.shape[-1]
+    outputs = decoder_inputs
+
+    for i in range(D):
+        if i+1 in skips:
+            # next layer has skip connection, need to shrink the size of this ouput
+            outputs = dense(W-decoder_inputs_len)(outputs)
+        else:
+            outputs = dense(W)(outputs)
+        
+        if i in skips:
+            outputs = tf.concat([outputs,decoder_inputs], -1)
+
+    model_decoder = tf.keras.Model(inputs=inputs, outputs=outputs)
+
+    return model_decoder
 
 
 # Ray helpers

@@ -436,6 +436,10 @@ def create_nerf(args, hwf):
         input_ch_coord=input_ch, output_ch=output_ch, skips=skips,
         input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs, 
         feature_len=args.feature_len, rot_mlp=args.use_rot_mlp, D_rotation=args.rot_mlp_depth)
+
+    encoder = init_pixel_nerf_encoder(input_ch_image=(hwf[0],hwf[1],3), final_feature_len=args.feature_len)
+    decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, input_ch_pose=(3,4), input_ch_coord=3, input_ch_views=3, output_ch=4, skips=[4], feature_depth=args.feature_len):
+    
     if args.fix_decoder:
         decoder.trainable = False
     models = {'encoder': encoder, 'decoder': decoder}
