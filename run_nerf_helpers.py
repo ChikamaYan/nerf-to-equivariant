@@ -265,6 +265,51 @@ def init_nerf_r_models(D=8, W=256, D_rotation=2, input_ch_image=(400, 400, 3), i
 
     return [model_encoder, model_decoder]
 
+def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), final_feature_len=128):
+    '''
+    Init encoder from paper pixel nerf
+    Uses a ResNet 50 pretrained auto-encoder, outputs feature from each layer concatenated
+    '''
+
+    print("Initing nerf_r models")
+
+    relu = tf.keras.layers.ReLU()
+    def dense(W, act=relu): return tf.keras.layers.Dense(W, activation=act)
+    def conv2d(filter, kernel_size, input_shape): return tf.keras.layers.Conv2D(filter, kernel_size, padding='valid', input_shape=input_shape)
+    def maxpool(pool_size): return tf.keras.layers.MaxPool2D(pool_size)
+    def avgpool(pool_size): return tf.keras.layers.AveragePooling2D(pool_size)
+
+
+    # first model: resnet 50
+    inputs_encoder = tf.keras.Input(shape=(np.prod(input_ch_image),))
+    inputs_images = tf.reshape(inputs_encoder,[-1] + list(input_ch_image))
+
+    feature_vector = tf.keras.applications.resnet.preprocess_input(inputs_images)
+    pretrained_model = tf.keras.applications.ResNet50(include_top=False, input_shape=input_ch_image, pooling='avg')
+    pretrained_model.trainable = True
+
+    # run in inference mode to prevent updating the bactNorm layers
+    # note that this is a feature vector and is not used -- we only use result from conv5 before avg_pool
+    final_feature = pretrained_model(feature_vector, training=False) 
+
+    min_out_layers = ['pool1_pool','conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out', 'conv5_block3_out']
+    features = []
+
+    for layer in min_out_layers:
+        feature = pretrained_model.get_layer(layer).output
+        features.append(feature)
+
+    # rescale features to same size as input image
+    HW = inputs_images.shape[1:3]
+    for i, feature in enumerate(features):
+        features[i] = tf.image.resize(feature, HW)
+    
+    features = tf.concat(features, axis=-1)
+
+    model_encoder = tf.keras.Model(inputs=inputs_encoder, outputs=features)
+
+    return model_encoder
+
 
 # Ray helpers
 
