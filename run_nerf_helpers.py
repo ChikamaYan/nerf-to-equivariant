@@ -4,6 +4,7 @@ import tensorflow as tf
 import numpy as np
 import imageio
 import json
+# from classification_models.keras import Classifiers
 
 
 # Misc utils
@@ -265,7 +266,7 @@ def init_nerf_r_models(D=8, W=256, D_rotation=2, input_ch_image=(400, 400, 3), i
 
     return [model_encoder, model_decoder]
 
-def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), final_feature_len=128):
+def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3)):
 
     
     '''
@@ -286,10 +287,17 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), final_feature_len=128)
 
     inputs_images = tf.keras.applications.resnet.preprocess_input(inputs_images)
     pretrained_model = tf.keras.applications.ResNet50(include_top=False, input_shape=input_ch_image, pooling='avg')
+
+    # ResNet18, preprocess_input = Classifiers.get('resnet18')
+    # pretrained_model = ResNet18(include_top=False, input_shape=input_ch_image, pooling='avg', weights='imagenet')
+    # inputs_images = preprocess_input(inputs_images)
+
     pretrained_model.trainable = True
 
     # get features from middle layers
-    mid_out_layers = ['pool1_pool','conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out', 'conv5_block3_out']
+    mid_out_layers = ['pool1_pool','conv2_block3_out', 'conv3_block4_out']#, 'conv4_block6_out', 'conv5_block3_out']
+    # mid_out_layers = ['stage1_unit2_conv2', 'stage2_unit2_conv2', 'stage3_unit2_conv2', 'stage4_unit2_conv2']
+
     features = []    
     for layer in mid_out_layers:
         feature = pretrained_model.get_layer(layer).output
@@ -304,11 +312,17 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), final_feature_len=128)
 
     # run in inference mode to prevent updating the bactNorm layers
     features = pretrained_part(inputs_images, training=False)
+
+    # pass feature for each pixel to a MLP to shrink size
+    features_original_shape = features.shape
+    features = tf.reshape(features, [-1, features_original_shape[-1]])
+    features = dense(64)(features)
+    
     model_encoder = tf.keras.Model(inputs=inputs_encoder, outputs=features, name='encoder')
 
     return model_encoder
 
-def init_pixel_nerf_decoder(D=8, W=512, input_ch_pose=(3,4), input_ch_coord=3, input_ch_views=3, output_ch=4, skips=[4], feature_depth=256):
+def init_pixel_nerf_decoder(D=8, W=256, input_ch_pose=(3,4), input_ch_coord=3, input_ch_views=3, output_ch=4, skips=[2,4,6], feature_depth=128):
     '''
     Init decoder architecture from pixelNerf paper
     Uses skip connections for several times
@@ -333,7 +347,8 @@ def init_pixel_nerf_decoder(D=8, W=512, input_ch_pose=(3,4), input_ch_coord=3, i
     features.set_shape([None, feature_depth])
 
     # feed features to an MLP first
-    features = dense(128)(features)
+    # not needed -- done in encoder
+    # features = dense(128)(features)
 
     # concate feature vector with input coordinates
     decoder_inputs = tf.concat([inputs_pts,inputs_views, features], -1)

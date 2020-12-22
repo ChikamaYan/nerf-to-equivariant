@@ -33,22 +33,31 @@ def batchify(fn, chunk):
 
 def compute_features(input_image, input_pose, encoder):
     # flatten input image
+    image_original_shape = list(input_image.shape)
     input_image = np.reshape(input_image,[1, -1])
     input_image = tf.cast(input_image, tf.float32)
 
     # flatten input pose and add it to inputs
-    input_pose = np.reshape(input_pose,[1, -1])
-    input_pose = tf.cast(input_pose, tf.float32)
+    # for pixelNerf architecture, no input pose is used
+    # input_pose = np.reshape(input_pose,[1, -1])
+    # input_pose = tf.cast(input_pose, tf.float32)
 
-    inputs = tf.concat([input_image, input_pose], -1)
-    feature_rotated = encoder(inputs)
-    return feature_rotated
+    # inputs = tf.concat([input_image, input_pose], -1)
+    feature = encoder(input_image)
+    feature = tf.reshape(feature, [1] + image_original_shape[:-1] + [feature.shape[-1]])
+    return feature
 
 
-def run_network(inputs, input_image, input_pose, viewdirs, network_fn, embed_fn, embeddirs_fn, netchunk=1024*64, feature=None):
-    """Prepares inputs and applies network 'fn'."""
+def run_network(inputs, select_coords, input_image, input_pose, viewdirs, network_fn, embed_fn, embeddirs_fn, netchunk=1024*64, feature=None):
+    """
+    Prepares inputs and applies network 'fn'.
 
-    # print(f'Query coordinate is {inputs[0].numpy()}')
+    Input:
+        inputs: 3D coordinates in world space of sampled points, shape [B, S, 3] where B=#batch, S=#sampled points for a pixel
+        select_coords: the 2D pixel coordinates of those points, shape [B, 2]
+
+    
+    """
 
     inputs_flat = tf.reshape(inputs, [-1, inputs.shape[-1]])
 
@@ -63,8 +72,14 @@ def run_network(inputs, input_image, input_pose, viewdirs, network_fn, embed_fn,
 
     if feature is None:
         feature = compute_features(input_image, input_pose, network_fn['encoder'])
+
+    # for each query point, sample corresponding feature
+    select_coords = tf.expand_dims(select_coords,axis=1)
+    select_coords = tf.tile(select_coords,[1, inputs.shape[1], 1])
+    features_sampled = tf.gather_nd(feature[0,...],select_coords)
+    features_sampled = tf.reshape(features_sampled,[-1, features_sampled.shape[-1]])
     
-    embedded = tf.concat([embedded, tf.tile(feature, [embedded.shape[0],1])], -1)
+    embedded = tf.concat([embedded, features_sampled], -1)
 
     outputs_flat = batchify(network_fn['decoder'], netchunk)(embedded)
     outputs = tf.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
@@ -74,6 +89,7 @@ def run_network(inputs, input_image, input_pose, viewdirs, network_fn, embed_fn,
 
 
 def render_rays(ray_batch,
+                select_coords,
                 input_image,
                 input_pose,
                 network_fn,
@@ -236,7 +252,7 @@ def render_rays(ray_batch,
         z_vals[..., :, None]  # [N_rays, N_samples, 3
 
     # Evaluate model at each point.
-    raw, feature = network_query_fn(pts, input_image, input_pose, viewdirs, network_fn)  # [N_rays, N_samples, 4]
+    raw, feature = network_query_fn(pts, select_coords, input_image, input_pose, viewdirs, network_fn)  # [N_rays, N_samples, 4]
     _, disp_map, acc_map, weights, rgb_map = raw2outputs(
         raw, z_vals, rays_d)
 
@@ -262,7 +278,7 @@ def render_rays(ray_batch,
         # Make predictions with network_fine.
         run_fn = network_fn if network_fine is None else {'decoder': network_fine}
         # re-use the same feature
-        raw, _ = network_query_fn(pts, input_image, input_pose, viewdirs, run_fn, feature=feature)
+        raw, _ = network_query_fn(pts, select_coords, input_image, input_pose, viewdirs, run_fn, feature=feature)
         _, disp_map, acc_map, weights, rgb_map = raw2outputs(
             raw, z_vals, rays_d)
         
@@ -285,11 +301,11 @@ def render_rays(ray_batch,
     return ret
 
 
-def batchify_rays(rays_flat, image, pose, chunk=1024*32, **kwargs):
+def batchify_rays(rays_flat, select_coords, image, pose, chunk=1024*32, **kwargs):
     """Render rays in smaller minibatches to avoid OOM."""
     all_ret = {}
     for i in range(0, rays_flat.shape[0], chunk):
-        ret = render_rays(rays_flat[i:i+chunk], image, pose, **kwargs)
+        ret = render_rays(rays_flat[i:i+chunk], select_coords[i:i+chunk], image, pose, **kwargs)
         for k in ret:
             if k not in all_ret:
                 all_ret[k] = []
@@ -300,7 +316,8 @@ def batchify_rays(rays_flat, image, pose, chunk=1024*32, **kwargs):
 
 
 def render(H, W, focal,
-           chunk=1024*32, rays=None, image=None, pose=None, c2w=None, ndc=True,
+           chunk=1024*32, rays=None, select_coords=None, image=None, 
+           pose=None, c2w=None, ndc=True,
            near=0., far=1.,
            use_viewdirs=False, c2w_staticcam=None,
            **kwargs):
@@ -314,6 +331,9 @@ def render(H, W, focal,
         control maximum memory usage. Does not affect final results.
       rays: array of shape [2, batch_size, 3]. Ray origin and direction for
         each example in batch.
+      select_coords: pixel coordinates of selected pixels. Used to extract local feature.
+        If None, assumes in order pixels covering the whole image
+
       c2w: array of shape [3, 4]. Camera-to-world transformation matrix.
       ndc: bool. If True, represent ray origin, direction in NDC coordinates.
       near: float or array of shape [batch_size]. Nearest distance for a ray.
@@ -328,6 +348,10 @@ def render(H, W, focal,
       acc_map: [batch_size]. Accumulated opacity (alpha) along a ray.
       extras: dict with everything returned by render_rays().
     """
+
+    if select_coords is None:
+        select_coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
+        select_coords = tf.reshape(select_coords, [-1, 2])
 
     if c2w is not None:
         # special case to render full image
@@ -367,7 +391,7 @@ def render(H, W, focal,
         rays = tf.concat([rays, viewdirs], axis=-1)
 
     # Render and reshape
-    all_ret = batchify_rays(rays, image, pose, chunk, **kwargs)
+    all_ret = batchify_rays(rays, select_coords, image, pose, chunk, **kwargs)
     for k in all_ret:
         if 'feature' not in k:
             k_sh = list(sh[:-1]) + list(all_ret[k].shape[1:])
@@ -429,16 +453,16 @@ def create_nerf(args, hwf):
         embeddirs_fn, input_ch_views = get_embedder(
             args.multires_views, args.i_embed)
     output_ch = 1
-    skips = [4]
+    skips = [2,4,6]
     # skip specifies the indices of layers that need skip connection
-    encoder, decoder = init_nerf_r_models(
-        D=args.netdepth, W=args.netwidth, input_ch_image=(hwf[0],hwf[1],3),
-        input_ch_coord=input_ch, output_ch=output_ch, skips=skips,
-        input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs, 
-        feature_len=args.feature_len, rot_mlp=args.use_rot_mlp, D_rotation=args.rot_mlp_depth)
 
-    encoder = init_pixel_nerf_encoder(input_ch_image=(hwf[0],hwf[1],3), final_feature_len=args.feature_len)
-    decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, input_ch_pose=(3,4), input_ch_coord=3, input_ch_views=3, output_ch=4, skips=[4], feature_depth=args.feature_len):
+    encoder = init_pixel_nerf_encoder(input_ch_image=(hwf[0],hwf[1],3))
+    feature_depth = encoder.outputs[0].shape[-1]
+
+    decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
+                                      input_ch_pose=(3,4), input_ch_coord=input_ch, 
+                                      input_ch_views=input_ch_views, output_ch=output_ch, 
+                                      skips=skips, feature_depth=feature_depth)
     
     if args.fix_decoder:
         decoder.trainable = False
@@ -447,18 +471,17 @@ def create_nerf(args, hwf):
     # fine model: only fine decoder needed
     decoder_fine  = None
     if args.N_importance > 0 and args.separate_fine:
-        _ , decoder_fine = init_nerf_r_models(
-            D=args.netdepth, W=args.netwidth, input_ch_image=(hwf[0],hwf[1],3),
-            input_ch_coord=input_ch, output_ch=output_ch, skips=skips,
-            input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs, 
-            feature_len=args.feature_len, rot_mlp=args.use_rot_mlp, D_rotation=args.rot_mlp_depth)
+        decoder_fine = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
+                                      input_ch_pose=(3,4), input_ch_coord=input_ch, 
+                                      input_ch_views=input_ch_views, output_ch=output_ch, 
+                                      skips=skips, feature_depth=feature_depth)
         if args.fix_decoder:
             decoder_fine.trainable = False
         models['decoder_fine'] = decoder_fine
 
 
-    def network_query_fn(inputs, input_image, input_pose, viewdirs, network_fn, feature=None): return run_network(
-        inputs, input_image, input_pose, viewdirs, network_fn, feature=feature,
+    def network_query_fn(inputs, select_coords, input_image, input_pose, viewdirs, network_fn, feature=None): return run_network(
+        inputs, select_coords, input_image, input_pose, viewdirs, network_fn, feature=feature,
         embed_fn=embed_fn,
         embeddirs_fn=embeddirs_fn,
         netchunk=args.netchunk)
@@ -890,8 +913,12 @@ def train():
         # select ray indices for training
         coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
         coords = tf.reshape(coords, [-1, 2])
-        select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)
-        select_inds = tf.gather_nd(coords, select_inds[:, tf.newaxis])
+
+        # # use full image train
+        # select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)
+        # select_inds = tf.gather_nd(coords, select_inds[:, tf.newaxis])
+        select_inds = coords
+
         # select rays using pose of target image
         batch = tf.gather_nd(rays_rgb[target_j], select_inds) # [N_rand,3,3]
         batch_rays, target_s = batch[:,:2,:], batch[:,2,:]
@@ -903,7 +930,7 @@ def train():
 
             # Make predictions for color, disparity, accumulated opacity.
             rgb, disp, acc, feature, extras = render(
-                H, W, focal, chunk=args.chunk, rays=batch_rays, image=input_img, pose=pose,
+                H, W, focal, chunk=args.chunk, rays=batch_rays, select_coords=select_inds, image=input_img, pose=pose,
                 verbose=i<10, retraw=True, **render_kwargs_train)
 
             # Compute MSE loss between predicted and true RGB.

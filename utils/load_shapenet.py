@@ -2,6 +2,7 @@ import os
 import numpy as np
 import tensorflow as tf
 import imageio
+from scipy.ndimage import gaussian_filter
 # from utils.load_blender import pose_spherical
 
 # blender coord system
@@ -165,6 +166,11 @@ def load_shapenet_data(basedir='./data/shapenet/depth/', resolution_scale=1., sa
     all_imgs = np.array(all_imgs).astype(np.float32)
     all_imgs = np.stack([all_imgs,all_imgs,all_imgs],axis=-1) # expand 1 channel depth value to 3 channel rgb values
     all_imgs = tf.image.resize_area(all_imgs, [H, W]).numpy()
+
+    if resolution_scale < 0.4:
+        # apply Gaussian blur
+        for i in range(all_imgs.shape[0]):
+            all_imgs[i,...] = gaussian_filter(all_imgs[i,...], sigma=1)
 
     
     all_imgs = all_imgs/255.

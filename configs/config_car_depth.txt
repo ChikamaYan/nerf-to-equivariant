@@ -1,5 +1,5 @@
-expname = car_depth_rot_mlp_full_image_train_128_feature_skip
-description = 'depth, full image train, skipped with 128 feature vector'
+expname = car_depth_pixel_nerf
+description = 'experiment with pixel nerf'
 
 basedir = ./logs
 datadir = ./data/shapenet/depth_100_5/
@@ -14,13 +14,13 @@ feature_len = 128
 
 white_bkgd = True
 
-N_rand = 6400
+N_rand = 3600
 N_samples = 16
 N_importance = 32
 separate_fine = False
 
-chunk = 4096
-netchunk = 4096
+chunk = 3600
+netchunk = 3600
 
 i_video = 10000
 i_weights = 1000
@@ -34,4 +34,4 @@ shapenet_test = 0
 
 use_depth = True
 
-resolution_scale = .4
+resolution_scale = .3
