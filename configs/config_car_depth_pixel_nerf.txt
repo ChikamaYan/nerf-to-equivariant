@@ -1,0 +1,38 @@
+expname = car_depth_pixel_nerf_experiment
+description = 'experiment with pixel nerf'
+
+basedir = ./logs
+datadir = ./data/shapenet/depth_100_5/
+dataset_type = shapenet
+random_seed = 42
+
+use_rotation = True
+use_viewdirs = True
+
+multires = 6
+multires_views = 0
+feature_len = 256
+skip_type = add
+
+white_bkgd = True
+
+N_rand = 1024
+N_samples = 16
+N_importance = 16
+separate_fine = True
+
+chunk = 20480
+
+i_video = 10000
+i_weights = 1000
+i_img = 1000
+i_testset = 90000
+i_log_target = 1000
+
+shapenet_train = 90
+shapenet_val = 10
+shapenet_test = 0
+
+use_depth = True
+
+resolution_scale = .5

@@ -12,11 +12,17 @@ import imageio
 import json
 import random
 import time
-from run_nerf_helpers import *
+
+from utils.run_nerf_helpers import *
+from utils.config_parser import config_parser
 from utils.load_llff import load_llff_data
 from utils.load_deepvoxels import load_dv_data
 from utils.load_blender import load_blender_data
 from utils.load_shapenet import load_shapenet_data
+
+from model.embedder import *
+from model.models import *
+
 tf.compat.v1.enable_eager_execution()
 
 
@@ -29,7 +35,6 @@ def batchify(fn, chunk):
     def ret(inputs):
         return tf.concat([fn(inputs[i:i+chunk]) for i in range(0, inputs.shape[0], chunk)], 0)
     return ret
-
 
 def compute_features(input_image, input_pose, encoder):
     # flatten input image
@@ -81,11 +86,112 @@ def run_network(inputs, select_coords, input_image, input_pose, viewdirs, networ
     
     embedded = tf.concat([embedded, features_sampled], -1)
 
-    outputs_flat = batchify(network_fn['decoder'], netchunk)(embedded)
+    # removed batchfy for pts here
+    outputs_flat = network_fn['decoder'](embedded)
     outputs = tf.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
     # last element in the output shape is the output channel
     outputs = tf.concat([outputs,outputs,outputs,outputs],axis=-1)
     return outputs, feature
+
+
+def create_nerf(args, hwf):
+    """Instantiate NeRF's MLP model."""
+
+    embed_fn, input_ch = get_embedder(args.multires, args.i_embed)
+
+    input_ch_views = 0
+    embeddirs_fn = None
+    if args.use_viewdirs:
+        embeddirs_fn, input_ch_views = get_embedder(
+            args.multires_views, args.i_embed)
+    output_ch = 1
+    skips = [2,4,6]
+    # skip specifies the indices of layers that need skip connection
+
+    encoder = init_pixel_nerf_encoder(input_ch_image=(hwf[0],hwf[1],3), feature_depth=args.feature_len)
+    # feature_depth = encoder.outputs[0].shape[-1]
+
+    decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
+                                      input_ch_coord=input_ch, 
+                                      input_ch_views=input_ch_views, output_ch=output_ch, 
+                                      skips=skips, feature_depth=args.feature_len, mode=args.skip_type)
+    
+    if args.fix_decoder:
+        decoder.trainable = False
+    models = {'encoder': encoder, 'decoder': decoder}
+
+    decoder.summary()
+
+    # fine model: only fine decoder needed
+    decoder_fine  = None
+    if args.N_importance > 0 and args.separate_fine:
+        decoder_fine = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
+                                      input_ch_coord=input_ch, 
+                                      input_ch_views=input_ch_views, output_ch=output_ch, 
+                                      skips=skips, feature_depth=args.feature_len, mode=args.skip_type)
+        if args.fix_decoder:
+            decoder_fine.trainable = False
+        models['decoder_fine'] = decoder_fine
+
+
+    def network_query_fn(inputs, select_coords, input_image, input_pose, viewdirs, network_fn, feature=None): return run_network(
+        inputs, select_coords, input_image, input_pose, viewdirs, network_fn, feature=feature,
+        embed_fn=embed_fn,
+        embeddirs_fn=embeddirs_fn,
+        netchunk=args.netchunk)
+
+    render_kwargs_train = {
+        'network_query_fn': network_query_fn,
+        'perturb': args.perturb,
+        'N_importance': args.N_importance,
+        'network_fine': decoder_fine,
+        'N_samples': args.N_samples,
+        'network_fn': models,
+        'use_viewdirs': args.use_viewdirs,
+        'white_bkgd': args.white_bkgd,
+        'raw_noise_std': args.raw_noise_std,
+    }
+
+    # NDC only good for LLFF-style forward facing data
+    if args.dataset_type != 'llff' or args.no_ndc:
+        print('Not ndc!')
+        render_kwargs_train['ndc'] = False
+        render_kwargs_train['lindisp'] = args.lindisp
+
+    render_kwargs_test = {
+        k: render_kwargs_train[k] for k in render_kwargs_train}
+    render_kwargs_test['perturb'] = False
+    render_kwargs_test['raw_noise_std'] = 0.
+
+    start = 0
+    # start is batch counter
+    basedir = args.basedir
+    expname = args.expname
+
+    if args.ft_path is not None and args.ft_path != 'None':
+        ckpts = [args.ft_path]
+    else:
+        ckpts = [os.path.join(basedir, expname, f) for f in sorted(os.listdir(os.path.join(basedir, expname))) if
+                 ('encoder' in f)]
+    print('Found ckpts', ckpts)
+    if len(ckpts) > 0 and not args.no_reload:
+        ft_weights = ckpts[-1]
+        print('Reloading encoder from', ft_weights)
+        models['encoder'].set_weights(np.load(ft_weights, allow_pickle=True))
+        ft_weights_decoder = ft_weights.replace('encoder', 'decoder')
+        print('Reloading decoder from', ft_weights_decoder)
+        models['decoder'].set_weights(np.load(ft_weights_decoder, allow_pickle=True))
+
+        start = int(ft_weights[-10:-4]) + 1
+        print('Resetting step to', start)
+
+        # load weights for fine decoder
+        if decoder_fine is not None:            
+            ft_weights_decoder_fine = ft_weights.replace('encoder', 'decoder_fine')
+            print('Reloading decoder_fine from', ft_weights_decoder_fine)
+            models['decoder_fine'].set_weights(np.load(ft_weights_decoder_fine, allow_pickle=True))
+
+    return render_kwargs_train, render_kwargs_test, start, models
 
 
 def render_rays(ray_batch,
@@ -209,6 +315,10 @@ def render_rays(ray_batch,
         return rgb_map, disp_map, acc_map, weights, depth_map
 
     ###############################
+
+    input_pose = tf.convert_to_tensor(input_pose)
+    input_image = tf.convert_to_tensor(input_image)
+    
     # batch size
     N_rays = ray_batch.shape[0]
 
@@ -219,11 +329,12 @@ def render_rays(ray_batch,
     rays_d = ray_batch[:, 8:] # use normalized rays_d
 
     # Extract unit-normalized viewing direction.
+    # note that viewdirs are same as rays_d, it's used here just for no_view_dir case
     viewdirs = ray_batch[:, -3:] if ray_batch.shape[-1] > 8 else None
 
     # Extract lower, upper bound for ray distance.
     bounds = tf.reshape(ray_batch[..., 6:8], [-1, 1, 2])
-    near, far = bounds[..., 0], bounds[..., 1]  # [-1,1]
+    near, far = bounds[..., 0], bounds[..., 1] 
 
     # Decide where to sample along each ray. Under the logic, all rays will be sampled at
     # the same times.
@@ -251,8 +362,42 @@ def render_rays(ray_batch,
     pts = rays_o[..., None, :] + rays_d[..., None, :] * \
         z_vals[..., :, None]  # [N_rays, N_samples, 3
 
+    def transform_coord_sys(vecs, input_pose, normalize=False):
+        '''
+        Transform 3D points or view dirs into input view's coordinate system
+
+        Input:
+            vecs: (B,S,3) vectors of 3D coordinates or view dirs. #S is the number of samples
+            input_pose: input view's coordinate system of shape (3, 4)
+            normalize: whether to normalize after transform. needed for transforming view dirs
+        '''
+        # convert those points from world coordinate to input view camera coordiate
+        input_pose_full = tf.concat([input_pose,[[0,0,0,1]]], axis=0)
+
+        vecs_input_view = tf.transpose(tf.reshape(vecs, (-1, 3)))
+        vecs_input_view = tf.concat([vecs_input_view, tf.ones([1, vecs_input_view.shape[-1]])],axis=0)
+
+        vecs_input_view = tf.linalg.inv(input_pose_full) @ vecs_input_view # TODO: make sure it works
+
+        vecs_input_view = tf.transpose(vecs_input_view[:3,:])
+        vecs_input_view = tf.reshape(vecs_input_view, vecs.shape)
+
+        # # caculate correct view dirs in input view's coordinate
+        # # seems to be incorrect
+        # input_origin = vecs[:3, -1]
+        # viewdirs = pts_input_view - input_origin[None, None, :]
+        # viewdirs = viewdirs / tf.math.reduce_sum(viewdirs**2, axis=-1, keepdims=True)**0.5
+
+        if normalize:
+            vecs_input_view = vecs_input_view / tf.math.reduce_sum(vecs_input_view**2, axis=-1, keepdims=True)**0.5
+
+        return vecs_input_view
+
+    pts_input_view = transform_coord_sys(pts, input_pose)
+    viewdirs_input_view = transform_coord_sys(viewdirs, input_pose, normalize=True)
+
     # Evaluate model at each point.
-    raw, feature = network_query_fn(pts, select_coords, input_image, input_pose, viewdirs, network_fn)  # [N_rays, N_samples, 4]
+    raw, feature = network_query_fn(pts_input_view, select_coords, input_image, input_pose, viewdirs_input_view, network_fn)  # [N_rays, N_samples, 4]
     _, disp_map, acc_map, weights, rgb_map = raw2outputs(
         raw, z_vals, rays_d)
 
@@ -275,10 +420,14 @@ def render_rays(ray_batch,
         pts = rays_o[..., None, :] + rays_d[..., None, :] * \
             z_vals[..., :, None]  # [N_rays, N_samples + N_importance, 3]
 
-        # Make predictions with network_fine.
+
+        pts_input_view = transform_coord_sys(pts, input_pose)
+        viewdirs_input_view = transform_coord_sys(viewdirs, input_pose, normalize=True)
+
+        # Make predictions with network_fine if it exists
         run_fn = network_fn if network_fine is None else {'decoder': network_fine}
         # re-use the same feature
-        raw, _ = network_query_fn(pts, select_coords, input_image, input_pose, viewdirs, run_fn, feature=feature)
+        raw, _ = network_query_fn(pts_input_view, select_coords, input_image, input_pose, viewdirs_input_view, run_fn, feature=feature)
         _, disp_map, acc_map, weights, rgb_map = raw2outputs(
             raw, z_vals, rays_d)
         
@@ -301,20 +450,6 @@ def render_rays(ray_batch,
     return ret
 
 
-def batchify_rays(rays_flat, select_coords, image, pose, chunk=1024*32, **kwargs):
-    """Render rays in smaller minibatches to avoid OOM."""
-    all_ret = {}
-    for i in range(0, rays_flat.shape[0], chunk):
-        ret = render_rays(rays_flat[i:i+chunk], select_coords[i:i+chunk], image, pose, **kwargs)
-        for k in ret:
-            if k not in all_ret:
-                all_ret[k] = []
-            all_ret[k].append(ret[k])
-
-    all_ret = {k: tf.concat(all_ret[k], 0) for k in all_ret}
-    return all_ret
-
-
 def render(H, W, focal,
            chunk=1024*32, rays=None, select_coords=None, image=None, 
            pose=None, c2w=None, ndc=True,
@@ -333,6 +468,8 @@ def render(H, W, focal,
         each example in batch.
       select_coords: pixel coordinates of selected pixels. Used to extract local feature.
         If None, assumes in order pixels covering the whole image
+
+      pose: c2w tranformation matrix of input image
 
       c2w: array of shape [3, 4]. Camera-to-world transformation matrix.
       ndc: bool. If True, represent ray origin, direction in NDC coordinates.
@@ -390,6 +527,20 @@ def render(H, W, focal,
         # (ray origin, ray direction, min dist, max dist, normalized viewing direction)
         rays = tf.concat([rays, viewdirs], axis=-1)
 
+
+    def batchify_rays(rays_flat, select_coords, image, pose, chunk=1024*32, **kwargs):
+        """Render rays in smaller minibatches to avoid OOM."""
+        all_ret = {}
+        for i in range(0, rays_flat.shape[0], chunk):
+            ret = render_rays(rays_flat[i:i+chunk], select_coords[i:i+chunk], image, pose, **kwargs)
+            for k in ret:
+                if k not in all_ret:
+                    all_ret[k] = []
+                all_ret[k].append(ret[k])
+
+        all_ret = {k: tf.concat(all_ret[k], 0) for k in all_ret}
+        return all_ret
+
     # Render and reshape
     all_ret = batchify_rays(rays, select_coords, image, pose, chunk, **kwargs)
     for k in all_ret:
@@ -440,262 +591,6 @@ def render_path(render_poses, hwf, chunk, render_kwargs, input_image=None, gt_im
     disps = np.stack(disps, 0)
 
     return rgbs, disps
-
-
-def create_nerf(args, hwf):
-    """Instantiate NeRF's MLP model."""
-
-    embed_fn, input_ch = get_embedder(args.multires, args.i_embed)
-
-    input_ch_views = 0
-    embeddirs_fn = None
-    if args.use_viewdirs:
-        embeddirs_fn, input_ch_views = get_embedder(
-            args.multires_views, args.i_embed)
-    output_ch = 1
-    skips = [2,4,6]
-    # skip specifies the indices of layers that need skip connection
-
-    encoder = init_pixel_nerf_encoder(input_ch_image=(hwf[0],hwf[1],3))
-    feature_depth = encoder.outputs[0].shape[-1]
-
-    decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
-                                      input_ch_pose=(3,4), input_ch_coord=input_ch, 
-                                      input_ch_views=input_ch_views, output_ch=output_ch, 
-                                      skips=skips, feature_depth=feature_depth)
-    
-    if args.fix_decoder:
-        decoder.trainable = False
-    models = {'encoder': encoder, 'decoder': decoder}
-
-    # fine model: only fine decoder needed
-    decoder_fine  = None
-    if args.N_importance > 0 and args.separate_fine:
-        decoder_fine = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
-                                      input_ch_pose=(3,4), input_ch_coord=input_ch, 
-                                      input_ch_views=input_ch_views, output_ch=output_ch, 
-                                      skips=skips, feature_depth=feature_depth)
-        if args.fix_decoder:
-            decoder_fine.trainable = False
-        models['decoder_fine'] = decoder_fine
-
-
-    def network_query_fn(inputs, select_coords, input_image, input_pose, viewdirs, network_fn, feature=None): return run_network(
-        inputs, select_coords, input_image, input_pose, viewdirs, network_fn, feature=feature,
-        embed_fn=embed_fn,
-        embeddirs_fn=embeddirs_fn,
-        netchunk=args.netchunk)
-
-    render_kwargs_train = {
-        'network_query_fn': network_query_fn,
-        'perturb': args.perturb,
-        'N_importance': args.N_importance,
-        'network_fine': decoder_fine,
-        'N_samples': args.N_samples,
-        'network_fn': models,
-        'use_viewdirs': args.use_viewdirs,
-        'white_bkgd': args.white_bkgd,
-        'raw_noise_std': args.raw_noise_std,
-    }
-
-    # NDC only good for LLFF-style forward facing data
-    if args.dataset_type != 'llff' or args.no_ndc:
-        print('Not ndc!')
-        render_kwargs_train['ndc'] = False
-        render_kwargs_train['lindisp'] = args.lindisp
-
-    render_kwargs_test = {
-        k: render_kwargs_train[k] for k in render_kwargs_train}
-    render_kwargs_test['perturb'] = False
-    render_kwargs_test['raw_noise_std'] = 0.
-
-    start = 0
-    # start is batch counter
-    basedir = args.basedir
-    expname = args.expname
-
-    if args.ft_path is not None and args.ft_path != 'None':
-        ckpts = [args.ft_path]
-    else:
-        ckpts = [os.path.join(basedir, expname, f) for f in sorted(os.listdir(os.path.join(basedir, expname))) if
-                 ('encoder' in f)]
-    print('Found ckpts', ckpts)
-    if len(ckpts) > 0 and not args.no_reload:
-        ft_weights = ckpts[-1]
-        print('Reloading encoder from', ft_weights)
-        models['encoder'].set_weights(np.load(ft_weights, allow_pickle=True))
-        ft_weights_decoder = ft_weights.replace('encoder', 'decoder')
-        print('Reloading decoder from', ft_weights_decoder)
-        models['decoder'].set_weights(np.load(ft_weights_decoder, allow_pickle=True))
-
-        start = int(ft_weights[-10:-4]) + 1
-        print('Resetting step to', start)
-
-        # load weights for fine decoder
-        if decoder_fine is not None:            
-            ft_weights_decoder_fine = ft_weights.replace('encoder', 'decoder_fine')
-            print('Reloading decoder_fine from', ft_weights_decoder_fine)
-            models['decoder_fine'].set_weights(np.load(ft_weights_decoder_fine, allow_pickle=True))
-
-    return render_kwargs_train, render_kwargs_test, start, models
-
-
-def config_parser():
-
-    import configargparse
-    parser = configargparse.ArgumentParser()
-    parser.add_argument('--config', is_config_file=True,
-                        help='config file path')
-    parser.add_argument("--expname", type=str, help='experiment name')
-    parser.add_argument("--basedir", type=str, default='./logs/',
-                        help='where to store ckpts and logs')
-    parser.add_argument("--datadir", type=str,
-                        default='./data/llff/fern', help='input data directory')
-
-    # training options
-    parser.add_argument("--train_num", type=int, default=None,
-                        help='number of views used for training')
-    parser.add_argument("--netdepth", type=int, default=8,
-                        help='layers in network')
-    parser.add_argument("--netwidth", type=int, default=256,
-                        help='channels per layer')
-    parser.add_argument("--netdepth_fine", type=int,
-                        default=8, help='layers in fine network')
-    parser.add_argument("--netwidth_fine", type=int, default=256,
-                        help='channels per layer in fine network')
-    parser.add_argument("--N_rand", type=int, default=32*32*4,
-                        help='batch size (number of random rays per gradient step)')
-    parser.add_argument("--lrate", type=float,
-                        default=5e-4, help='learning rate')
-    parser.add_argument("--lrate_decay", type=int, default=250,
-                        help='exponential learning rate decay (in 1000s)')
-    parser.add_argument("--chunk", type=int, default=1024*32,
-                        help='number of rays processed in parallel, decrease if running out of memory')
-    parser.add_argument("--netchunk", type=int, default=1024*64,
-                        help='number of pts sent through network in parallel, decrease if running out of memory')
-    parser.add_argument("--no_batching", action='store_true',
-                        help='only take random rays from 1 image at a time')
-    parser.add_argument("--no_reload", action='store_true',
-                        help='do not reload weights from saved ckpt')
-    parser.add_argument("--ft_path", type=str, default=None,
-                        help='specific weights npy file to reload for coarse network')
-    parser.add_argument("--random_seed", type=int, default=None,
-                        help='fix random seed for repeatability')
-    
-    # pre-crop options
-    parser.add_argument("--precrop_iters", type=int, default=0,
-                        help='number of steps to train on central crops')
-    parser.add_argument("--precrop_frac", type=float,
-                        default=.5, help='fraction of img taken for central crops')    
-
-    # rendering options
-    parser.add_argument("--N_samples", type=int, default=64,
-                        help='number of coarse samples per ray')
-    parser.add_argument("--N_importance", type=int, default=0,
-                        help='number of additional fine samples per ray')
-    parser.add_argument("--separate_fine",  action='store_true',
-                        help='whether to use separate models for fine sampling')                  
-    parser.add_argument("--perturb", type=float, default=1.,
-                        help='set to 0. for no jitter, 1. for jitter')
-    parser.add_argument("--use_viewdirs", action='store_true',
-                        help='use full 5D input instead of 3D')
-    parser.add_argument("--i_embed", type=int, default=0,
-                        help='set 0 for default positional encoding, -1 for none')
-    parser.add_argument("--multires", type=int, default=10,
-                        help='log2 of max freq for positional encoding (3D location)')
-    parser.add_argument("--multires_views", type=int, default=4,
-                        help='log2 of max freq for positional encoding (2D direction)')
-    parser.add_argument("--raw_noise_std", type=float, default=0.,
-                        help='std dev of noise added to regularize sigma_a output, 1e0 recommended')
-
-    parser.add_argument("--render_only", action='store_true',
-                        help='do not optimize, reload weights and render out render_poses path')
-    parser.add_argument("--render_test", action='store_true',
-                        help='render the test set instead of render_poses path')
-    parser.add_argument("--render_factor", type=int, default=0,
-                        help='downsampling factor to speed up rendering, set 4 or 8 for fast preview')
-
-    # dataset options
-    parser.add_argument("--dataset_type", type=str, default='llff',
-                        help='options: llff / blender / deepvoxels')
-    parser.add_argument("--testskip", type=int, default=8,
-                        help='will load 1/N images from test/val sets, useful for large datasets like deepvoxels')
-
-    # deepvoxels flags
-    parser.add_argument("--shape", type=str, default='greek',
-                        help='options : armchair / cube / greek / vase')
-
-    # blender flags
-    parser.add_argument("--white_bkgd", action='store_true',
-                        help='set to render synthetic data on a white bkgd (always use for dvoxels)')
-    parser.add_argument("--half_res", action='store_true',
-                        help='load blender synthetic data at 400x400 instead of 800x800')
-    parser.add_argument("--quarter_res", action='store_true',
-                        help='load blender synthetic data at 200x200 instead of 800x800')
-    parser.add_argument("--resolution_scale",  type=float, default='1.0',
-                        help='apply resolution scale to loaded images')
-                        
-
-    # llff flags
-    parser.add_argument("--factor", type=int, default=8,
-                        help='downsample factor for LLFF images')
-    parser.add_argument("--no_ndc", action='store_true',
-                        help='do not use normalized device coordinates (set for non-forward facing scenes)')
-    parser.add_argument("--lindisp", action='store_true',
-                        help='sampling linearly in disparity rather than depth')
-    parser.add_argument("--spherify", action='store_true',
-                        help='set for spherical 360 scenes')
-    parser.add_argument("--llffhold", type=int, default=8,
-                        help='will take every 1/N images as LLFF test set, paper uses 8')
-
-    # logging/saving options
-    parser.add_argument("--i_print",   type=int, default=100,
-                        help='frequency of console printout and metric loggin')
-    parser.add_argument("--i_img",     type=int, default=500,
-                        help='frequency of tensorboard image logging')
-    parser.add_argument("--i_weights", type=int, default=10000,
-                        help='frequency of weight ckpt saving')
-    parser.add_argument("--i_testset", type=int, default=50000,
-                        help='frequency of testset saving')
-    parser.add_argument("--i_video",   type=int, default=50000,
-                        help='frequency of render_poses video saving')
-    parser.add_argument("--i_log_target",   type=int, default=99999999999,
-                        help='frequency of generating a image for a target image from training dataset')
-
-    # rotation equivariant option
-    parser.add_argument("--use_rotation", action='store_true',
-                        help='use target+source equivariant for training')
-    parser.add_argument("--use_rot_mlp", action='store_true',
-                        help='use rotational MLP to rotate feature')
-    parser.add_argument("--rot_mlp_depth", type=int, default=2,
-                        help='depth of rotational MLP to rotate feature')
-    parser.add_argument("--feature_len", type=int, default=256,
-                        help='length of feature vector extracted from image')
-
-    # shapenet options
-    parser.add_argument("--shapenet_train", type=int, default=5,
-                        help='number of shapenet objects used to train')
-    parser.add_argument("--shapenet_val", type=int, default=2,
-                        help='number of shapenet objects used to validate')
-    parser.add_argument("--shapenet_test", type=int, default=1,
-                        help='number of shapenet objects used to test')
-    parser.add_argument("--fix_objects", type=str, nargs='+', default=None,
-                        help='use specified objects')
-    parser.add_argument("--view_val", action='store_true',
-                        help='train with all train_objs, but val using different views of the same objs')
-    parser.add_argument("--val_all", action='store_true',
-                        help='during validation, use all val objects')
-
-    parser.add_argument("--use_depth", action='store_true',
-                        help='use depth map as supervision')
-    parser.add_argument("--fix_decoder", action='store_true',
-                        help='fix the weights of decoder')
-    parser.add_argument("--test_optimise_num", type=int, default=0,
-                    help='number of images for test time optimisation. 0 means no test opt')
-    parser.add_argument("--description", type=str, default='',
-                    help='a description of the experiment, has no effect on algorithm')
-
-    return parser
 
 
 def train():
@@ -863,11 +758,6 @@ def train():
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)
     print('VAL views are', i_val)
-
-    if args.use_rotation:
-        print("Start experimental run with rotation equivariant")
-    else:
-        print("Not using rotation")
         
     rays_rgb = np.reshape(rays_rgb,[-1, H, W, 3, 3])
 
@@ -914,10 +804,9 @@ def train():
         coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
         coords = tf.reshape(coords, [-1, 2])
 
-        # # use full image train
-        # select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)
-        # select_inds = tf.gather_nd(coords, select_inds[:, tf.newaxis])
-        select_inds = coords
+        select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)
+        select_inds = tf.gather_nd(coords, select_inds[:, tf.newaxis])
+        # select_inds = coords
 
         # select rays using pose of target image
         batch = tf.gather_nd(rays_rgb[target_j], select_inds) # [N_rand,3,3]
@@ -950,12 +839,12 @@ def train():
             tape.watch(overall_loss)
             # Compute MSE for rotation
             rot_loss = tf.constant(0,dtype="float32")
-            if args.use_rotation:
-                feature_target = compute_features(target_img, target_pose, render_kwargs_train['network_fn']['encoder'])
-                rot_loss = tf.keras.losses.MeanSquaredError()(feature_target, feature)
+            # if args.use_rotation:
+            #     feature_target = compute_features(target_img, target_pose, render_kwargs_train['network_fn']['encoder'])
+            #     rot_loss = tf.keras.losses.MeanSquaredError()(feature_target, feature)
 
-                # compute the sum of loss
-                overall_loss += rot_loss
+            #     # compute the sum of loss
+            #     overall_loss += rot_loss
                 
 
 

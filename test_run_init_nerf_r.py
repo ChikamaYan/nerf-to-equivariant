@@ -1,4 +1,4 @@
-from run_nerf_helpers import *
+from model.models import *
 import numpy as np
 
 
