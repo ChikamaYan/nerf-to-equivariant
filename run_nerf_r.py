@@ -36,6 +36,7 @@ def batchify(fn, chunk):
         return tf.concat([fn(inputs[i:i+chunk]) for i in range(0, inputs.shape[0], chunk)], 0)
     return ret
 
+
 def compute_features(input_image, input_pose, encoder):
     # flatten input image
     image_original_shape = list(input_image.shape)
@@ -49,7 +50,7 @@ def compute_features(input_image, input_pose, encoder):
 
     # inputs = tf.concat([input_image, input_pose], -1)
     feature = encoder(input_image)
-    feature = tf.reshape(feature, [1] + image_original_shape[:-1] + [feature.shape[-1]])
+    # feature = tf.reshape(feature, [1] + image_original_shape[:-1] + [feature.shape[-1]])
     return feature
 
 
@@ -78,11 +79,16 @@ def run_network(inputs, select_coords, input_image, input_pose, viewdirs, networ
     if feature is None:
         feature = compute_features(input_image, input_pose, network_fn['encoder'])
 
-    # for each query point, sample corresponding feature
-    select_coords = tf.expand_dims(select_coords,axis=1)
-    select_coords = tf.tile(select_coords,[1, inputs.shape[1], 1])
-    features_sampled = tf.gather_nd(feature[0,...],select_coords)
-    features_sampled = tf.reshape(features_sampled,[-1, features_sampled.shape[-1]])
+    if len(feature.shape) > 2:
+        # returned feature is a volume, take samples for each pixel
+        # for each query point, sample corresponding feature
+        select_coords = tf.expand_dims(select_coords,axis=1)
+        select_coords = tf.tile(select_coords,[1, inputs.shape[1], 1])
+        features_sampled = tf.gather_nd(feature[0,...],select_coords)
+        features_sampled = tf.reshape(features_sampled,[-1, features_sampled.shape[-1]])
+    else:
+        # global feature vector
+        features_sampled = tf.tile(feature, [embedded.shape[0],1])
     
     embedded = tf.concat([embedded, features_sampled], -1)
 
@@ -108,7 +114,7 @@ def create_nerf(args, hwf):
     skips = [2,4,6]
     # skip specifies the indices of layers that need skip connection
 
-    encoder = init_pixel_nerf_encoder(input_ch_image=(hwf[0],hwf[1],3), feature_depth=args.feature_len)
+    encoder = init_pixel_nerf_encoder(input_ch_image=(hwf[0],hwf[1],3), feature_depth=args.feature_len, args=args)
     # feature_depth = encoder.outputs[0].shape[-1]
 
     decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
@@ -120,6 +126,7 @@ def create_nerf(args, hwf):
         decoder.trainable = False
     models = {'encoder': encoder, 'decoder': decoder}
 
+    encoder.summary()
     decoder.summary()
 
     # fine model: only fine decoder needed
@@ -338,7 +345,9 @@ def render_rays(ray_batch,
 
     # Decide where to sample along each ray. Under the logic, all rays will be sampled at
     # the same times.
-    t_vals = tf.linspace(0., 1., N_samples)
+
+    # modified to exclude distance 0
+    t_vals = tf.linspace(0., 1., N_samples+1)[1:]
     if not lindisp:
         # Space integration times linearly between 'near' and 'far'. Same
         # integration points will be used for all rays.
@@ -554,7 +563,7 @@ def render(H, W, focal,
     return ret_list + [ret_dict]
 
 
-def render_path(render_poses, hwf, chunk, render_kwargs, input_image=None, gt_imgs=None, savedir=None, render_factor=0):
+def render_path(render_poses, hwf, chunk, render_kwargs, input_image=None, pose=None, gt_imgs=None, savedir=None, render_factor=0):
 
     H, W, focal = hwf
 
@@ -572,7 +581,7 @@ def render_path(render_poses, hwf, chunk, render_kwargs, input_image=None, gt_im
         print(i, time.time() - t)
         t = time.time()
         rgb, disp, acc, feature, _ = render(
-            H, W, focal, image=input_image, pose=c2w[:3, :4], chunk=chunk, c2w=c2w[:3, :4], **render_kwargs)
+            H, W, focal, image=input_image, pose=pose, chunk=chunk, c2w=c2w[:3, :4], **render_kwargs)
         rgbs.append(rgb.numpy())
         disps.append(disp.numpy())
         if i == 0:
@@ -652,18 +661,28 @@ def train():
         # log images
         dataimgdir = os.path.join(args.basedir, args.expname, 'data_preview')
         os.makedirs(dataimgdir, exist_ok=True)
-        for i in range(len(obj_indices)):
-            index = obj_indices[i][0]
 
-            prefix = ''
-            if i in obj_split[0]:
-                prefix = 'train'
-            elif i in obj_split[1]:
-                prefix = 'val'
-            elif i in obj_split[2]:
-                prefix = 'test'
+        if sample_nums == (1,0,0):
+            # single obj mode, log all images
+            for i in i_train:
+                imageio.imwrite(os.path.join(dataimgdir, '{}_{}_{}.png'.format('train', obj_names, i)), to8b(images[i]))
+            for i in i_val:
+                imageio.imwrite(os.path.join(dataimgdir, '{}_{}_{}.png'.format('val', obj_names, i)), to8b(images[i]))
+        else:
+            for i in range(len(obj_indices)):
+                index = obj_indices[i][0]
 
-            imageio.imwrite(os.path.join(dataimgdir, '{}_{}.png'.format(prefix, obj_names[i])), to8b(images[index]))
+                prefix = ''
+                if i in obj_split[0]:
+                    prefix = 'train'
+                elif i in obj_split[1]:
+                    prefix = 'val'
+                elif i in obj_split[2]:
+                    prefix = 'test'
+
+                imageio.imwrite(os.path.join(dataimgdir, '{}_{}.png'.format(prefix, obj_names[i])), to8b(images[index]))
+
+        
 
     else:
         print('Unknown dataset type', args.dataset_type, 'exiting')
@@ -753,7 +772,7 @@ def train():
         rays_rgb = np.reshape(rays_rgb, [-1, 3, 3])
         rays_rgb = rays_rgb.astype(np.float32)
 
-    N_iters = 200000
+    N_iters = args.N_iters
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)
@@ -769,6 +788,25 @@ def train():
     for i in range(start, N_iters):
         time0 = time.time()
 
+        if i >= args.i_train_encoder and models['encoder'].get_layer('resnet50').trainable == False:
+            print('-----------------------------')
+            print('Unfreezing pretrained encoder')
+            print('-----------------------------')
+            pretrained_model = models['encoder'].get_layer('resnet50')
+            pretrained_model.trainable = True
+
+            # freeze first few layers
+            for layer in pretrained_model.layers[:args.unfreeze_from]:
+                layer.trainable = False
+
+            # freeze batch normalization layers
+            for layer in pretrained_model.layers:
+                if layer.name.endswith('bn'):
+                    layer.trainable = False
+
+            models['encoder'].summary()
+
+
         # Sample random ray batch
         if args.use_rotation:
             # in order to apply rotation equivariant, need to pick two images from train set
@@ -781,24 +819,25 @@ def train():
                 img_i, target_i = np.random.choice(obj_indices[obj_i], 2, replace=False)
 
             else:
+                # single object mode
                 img_i, target_i = np.random.choice(i_train, 2, replace=False)
                 
-            target_j = np.where(i_train==target_i)[0][0]
-            # j is the index in rays_rgb
-            # needed because rays_rgb only contain rays info for train imgs
+            traget_rays_rgb_index = np.where(i_train==target_i)[0][0]
+            # traget_rays_rgb_index is the index in rays_rgb
+            # needed because rays_rgb only contain rays for train imgs
             input_img = images[img_i]
             target_img = images[target_i]
-            pose = poses[img_i, :3, :4]
+            input_pose = poses[img_i, :3, :4]
             target_pose = poses[target_i, :3, :4]
 
         else:
             # don't use rotation, but still input image + coordinates
             img_i = np.random.choice(i_train,1)[0]
-            target_j = img_i
+            traget_rays_rgb_index = np.where(i_train==img_i)[0][0]
             input_img = images[img_i]
             target_img = images[img_i]
-            pose = poses[img_i, :3, :4]
-            target_pose = pose
+            input_pose = poses[img_i, :3, :4]
+            target_pose = input_pose
 
         # select ray indices for training
         coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
@@ -806,10 +845,13 @@ def train():
 
         select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)
         select_inds = tf.gather_nd(coords, select_inds[:, tf.newaxis])
-        # select_inds = coords
+        if N_rand == coords.shape[0]:
+            # if use full image train, then don't shuffle
+            select_inds = coords
+        # input('Note that full image train without shuffling has been used!')
 
         # select rays using pose of target image
-        batch = tf.gather_nd(rays_rgb[target_j], select_inds) # [N_rand,3,3]
+        batch = tf.gather_nd(rays_rgb[traget_rays_rgb_index], select_inds) # [N_rand,3,3]
         batch_rays, target_s = batch[:,:2,:], batch[:,2,:]
         batch_rays = tf.transpose(batch_rays,[1,0,2])
 
@@ -819,32 +861,41 @@ def train():
 
             # Make predictions for color, disparity, accumulated opacity.
             rgb, disp, acc, feature, extras = render(
-                H, W, focal, chunk=args.chunk, rays=batch_rays, select_coords=select_inds, image=input_img, pose=pose,
+                H, W, focal, chunk=args.chunk, rays=batch_rays, select_coords=select_inds, image=input_img, pose=input_pose,
                 verbose=i<10, retraw=True, **render_kwargs_train)
+
+
+
+            # log rgb for debugging
+            # testimgdir = os.path.join(basedir, expname, 'tboard_train_imgs')
+            # if i==0:
+            #     os.makedirs(testimgdir, exist_ok=True)
+            # imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_train.png'.format(i)), to8b(tf.reshape(rgb,[60,60,3])))
+            # imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_ground_truth_in_train.png'.format(i)), to8b(input_img))
+            # imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_ground_truth_target_train.png'.format(i)), to8b(target_img))
 
             # Compute MSE loss between predicted and true RGB.
             img_loss = img2mse(rgb, target_s)
             trans = extras['raw'][..., -1]
             # what is trans? -- [:,:,4] of the raw outputs from NN 
-            img_loss = img_loss
             psnr = mse2psnr(img_loss)
 
             # Add MSE loss for coarse-grained model
             if 'rgb0' in extras:
                 img_loss0 = img2mse(extras['rgb0'], target_s)
-                img_loss += img_loss0
+                img_loss += img_loss0 # how does this work?
                 psnr0 = mse2psnr(img_loss0)
 
             overall_loss = img_loss
             tape.watch(overall_loss)
             # Compute MSE for rotation
             rot_loss = tf.constant(0,dtype="float32")
-            # if args.use_rotation:
-            #     feature_target = compute_features(target_img, target_pose, render_kwargs_train['network_fn']['encoder'])
-            #     rot_loss = tf.keras.losses.MeanSquaredError()(feature_target, feature)
+            if args.use_rotation:
+                feature_target = compute_features(target_img, target_pose, render_kwargs_train['network_fn']['encoder'])
+                rot_loss = tf.keras.losses.MeanSquaredError()(feature_target, feature)
 
-            #     # compute the sum of loss
-            #     overall_loss += rot_loss
+                # compute the sum of loss
+                # overall_loss += rot_loss
                 
 
 
@@ -882,11 +933,11 @@ def train():
             viddir = os.path.join(basedir, expname, 'videos')
             os.makedirs(viddir, exist_ok=True)
 
-            # generate images for test object
+            # generate video for test object
             # not needed to test time optimisation task
             if args.test_optimise_num <= 0:
                 rgbs, disps = render_path(
-                    render_poses, hwf, args.chunk, render_kwargs_test,input_image=target_img)
+                    render_poses, hwf, args.chunk, render_kwargs_test, input_image=target_img, pose=target_pose)
                 print('Done, saving', rgbs.shape, disps.shape)
                 moviebase = os.path.join(
                     viddir, '{}_spiral_{:06d}_train_'.format(expname, i))
@@ -899,7 +950,7 @@ def train():
             # generate video for val object
             img_i = np.random.choice(i_val)
             rgbs, disps = render_path(
-                render_poses, hwf, args.chunk, render_kwargs_test,input_image=images[img_i])
+                render_poses, hwf, args.chunk, render_kwargs_test,input_image=images[img_i], pose=poses[img_i, :3, :4])
             print('Done, saving', rgbs.shape, disps.shape)
             moviebase = os.path.join(
                 viddir, '{}_spiral_{:06d}_val_'.format(expname, i))
@@ -928,14 +979,15 @@ def train():
 
         if i % args.i_log_target == 0:
             # Log a rendered train view to Tensorboard
-            rgb, _, _, _, _ = render(H, W, focal, chunk=args.chunk, c2w=target_pose, image=target_img, pose=target_pose,
+            rgb, _, _, _, _ = render(H, W, focal, chunk=args.chunk, c2w=target_pose, image=input_img, pose=input_pose,
                                                     **render_kwargs_test)
             # Save out the validation image for Tensorboard-free monitoring
             testimgdir = os.path.join(basedir, expname, 'tboard_train_imgs')
             if i==0:
                 os.makedirs(testimgdir, exist_ok=True)
             imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj.png'.format(i)), to8b(rgb))
-            imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_ground_truth.png'.format(i)), to8b(target_img))
+            imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_ground_truth_in.png'.format(i)), to8b(input_img))
+            imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_ground_truth_target.png'.format(i)), to8b(target_img))
 
             mse = img2mse(rgb, target_img)
             psnr = mse2psnr(mse)
@@ -948,11 +1000,13 @@ def train():
                 tf.contrib.summary.image('rgb_train_img', target_img[tf.newaxis])
 
 
-
         if i % args.i_print == 0 or i < 10 or i % args.i_img == 0:
 
-            print(f'{expname}, iter {i}, psnr {psnr.numpy()}, img_loss {img_loss.numpy()}, rot_loss{rot_loss.numpy()}, global_step {global_step.numpy()}')
+            print(f'{expname}, iter {i}, psnr {psnr.numpy()}, img_loss {img_loss.numpy()}, rot_loss {rot_loss.numpy()}, global_step {global_step.numpy()}')
             print('iter time {:.05f}'.format(dt))
+
+            print(f'feature average {np.average(np.abs(feature.numpy()))}')
+
             with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_print):
                 tf.contrib.summary.scalar('loss', img_loss)
                 tf.contrib.summary.scalar('rot_loss', rot_loss)

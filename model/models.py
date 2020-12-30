@@ -196,7 +196,7 @@ def init_nerf_r_models(D=8, W=256, D_rotation=2, input_ch_image=(400, 400, 3), i
 
     return [model_encoder, model_decoder]
 
-def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256):
+def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, args=None):
 
     
     '''
@@ -206,9 +206,6 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256):
 
     relu = tf.keras.layers.ReLU()
     def dense(W, act=relu): return tf.keras.layers.Dense(W, activation=act)
-    def conv2d(filter, kernel_size, input_shape): return tf.keras.layers.Conv2D(filter, kernel_size, padding='valid', input_shape=input_shape)
-    def maxpool(pool_size): return tf.keras.layers.MaxPool2D(pool_size)
-    def avgpool(pool_size): return tf.keras.layers.AveragePooling2D(pool_size)
 
 
     # first model: resnet 50
@@ -222,32 +219,64 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256):
     # pretrained_model = ResNet18(include_top=False, input_shape=input_ch_image, pooling='avg', weights='imagenet')
     # inputs_images = preprocess_input(inputs_images)
 
-    pretrained_model.trainable = True
+    use_feature_volume = args.use_feature_volume if args is not None else False
 
-    # get features from middle layers
-    mid_out_layers = ['conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out']
-    # mid_out_layers = ['pool1_pool','conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out', 'conv5_block3_out']
-    # mid_out_layers = ['stage1_unit2_conv2', 'stage2_unit2_conv2', 'stage3_unit2_conv2', 'stage4_unit2_conv2']
+    if use_feature_volume:
+        # get features from middle layers
+        mid_out_layers = ['conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out']
+        # mid_out_layers = ['pool1_pool','conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out', 'conv5_block3_out']
+        # mid_out_layers = ['stage1_unit2_conv2', 'stage2_unit2_conv2', 'stage3_unit2_conv2', 'stage4_unit2_conv2']
 
-    features = []    
-    for layer in mid_out_layers:
-        feature = pretrained_model.get_layer(layer).output
-        features.append(feature)
+        features = []    
+        for layer in mid_out_layers:
+            feature = pretrained_model.get_layer(layer).output
+            features.append(feature)
 
-    # rescale features to same size as input image
-    HW = inputs_images.shape[1:3]
-    for i, feature in enumerate(features):
-        features[i] = tf.image.resize(feature, HW)
-    features = tf.concat(features, axis=-1)
-    pretrained_part = tf.keras.Model(inputs=pretrained_model.input, outputs=features, name='pretrained_encoder')
+        # rescale features to same size as input image
+        HW = inputs_images.shape[1:3]
+        for i, feature in enumerate(features):
+            features[i] = tf.image.resize(feature, HW)
+        features = tf.concat(features, axis=-1)
+        pretrained_encoder = tf.keras.Model(inputs=pretrained_model.inputs, outputs=features, name='resnet50')
+
+    else:
+        pretrained_encoder = pretrained_model
+
+    # trainable_encoder = not args.freeze_encoder if args is not None else True
+    # pretrained_encoder.trainable = False
+    # if trainable_encoder:
+    #     # unfreeze top layers that are not batch norm
+    #     unfreeze_from = args.unfreeze_from if args is not None else 0
+    #     assert unfreeze_from <= len(pretrained_encoder.layers)
+    #     for layer in pretrained_encoder.layers[unfreeze_from:]:
+    #         if not layer.name.endswith('bn'):
+    #             layer.trainable = True
+
+    pretrained_encoder.trainable = not args.freeze_encoder if args is not None else True
+
+    if pretrained_encoder.trainable:
+        # freeze first few layers
+        unfreeze_from = args.unfreeze_from if args is not None else 0
+        for layer in pretrained_encoder.layers[:unfreeze_from]:
+            layer.trainable = False
+
+        # freeze batch normalization layers
+        for layer in pretrained_encoder.layers:
+            if layer.name.endswith('bn'):
+                layer.trainable = False
 
     # run in inference mode to prevent updating the bactNorm layers
-    features = pretrained_part(inputs_images, training=False)
+    # but this thing is causing weird behaviour!
+    features = pretrained_encoder(inputs_images, training=True)
 
     # pass feature for each pixel to a MLP to shrink size
     features_original_shape = features.shape
     features = tf.reshape(features, [-1, features_original_shape[-1]])
     features = dense(feature_depth)(features)
+
+    # reshape it to volume
+    volume_shape = (features_original_shape[1:-1] + [feature_depth]).as_list()
+    features = tf.reshape(features, [-1] + volume_shape)
     
     model_encoder = tf.keras.Model(inputs=inputs_encoder, outputs=features, name='encoder')
 
@@ -284,18 +313,22 @@ def init_pixel_nerf_decoder(D=8, W=256, input_ch_coord=3, input_ch_views=3, outp
     if mode == 'add':
         # if using addition skip, need to ensure the shapes are the same
         decoder_inputs = dense(W)(decoder_inputs)
+    elif mode == 'concat':
+        decoder_inputs = dense(W//2)(decoder_inputs)
+    else:
+        print('skip type not known!')
+        return
 
     decoder_inputs_len = decoder_inputs.shape[-1]
     outputs = decoder_inputs
-
 
     for i in range(D):
         if mode == 'add':
             outputs = dense(W)(outputs)
             if i in skips:
-                outputs = (outputs + decoder_inputs)/2 #? divide by 2 actually works!
+                outputs =tf.keras.layers.Add()([outputs, decoder_inputs]) #? divide by 2 actually works! -- might not be the case
 
-        else:
+        elif mode == 'concat':
             # use concate skip
             if i+1 in skips:
                 # next layer has skip connection, need to shrink the size of this ouput

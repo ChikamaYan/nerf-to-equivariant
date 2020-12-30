@@ -12,11 +12,11 @@ use_viewdirs = True
 multires = 6
 multires_views = 0
 feature_len = 256
-skip_type = add
+skip_type = concat
 
 white_bkgd = True
 
-N_rand = 1024
+N_rand = 3600
 N_samples = 16
 N_importance = 16
 separate_fine = True
@@ -36,3 +36,8 @@ shapenet_test = 0
 use_depth = True
 
 resolution_scale = .5
+
+freeze_encoder = True
+i_train_encoder = 10000
+
+perturb = 1.

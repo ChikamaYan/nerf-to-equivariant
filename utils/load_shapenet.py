@@ -133,7 +133,7 @@ def load_shapenet_data(basedir='./data/shapenet/depth/', resolution_scale=1., sa
             i_split[0] = i_split[1].copy()
             i_split[2] = np.array([])
         else:
-            i_split[1] = np.random.choice(list(range(len(all_imgs))),10,replace=False)
+            i_split[1] = np.random.choice(list(range(len(all_imgs))),args.single_obj_val_num,replace=False)
             i_split[0] = np.array([i for i in range(len(all_imgs)) if i not in i_split[1]])
             i_split[2] = np.array([])
 
@@ -152,13 +152,6 @@ def load_shapenet_data(basedir='./data/shapenet/depth/', resolution_scale=1., sa
     # render poses for videos and render only experiments
 
     H, W = all_imgs[0].shape[:2]
-
-    # if quarter_res or half_res:
-    #     factor = 4 if quarter_res else 2
-    #     H = H//factor
-    #     W = W//factor
-    #     focal = focal/float(factor)
-    #     all_imgs = tf.image.resize_area(all_imgs, [H, W]).numpy()
 
     H = int(H * resolution_scale)
     W = int(W * resolution_scale)

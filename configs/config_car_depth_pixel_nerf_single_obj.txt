@@ -1,0 +1,42 @@
+expname = car_depth_pixel_nerf_single_obj_multi_view_encoder_partial_freeze_feature_volume
+description = 'experiment with pixel nerf, uses multiple view train with single object, feature volume. The aim of this is to experiment with different resnet options'
+
+basedir = ./logs
+datadir = ./data/shapenet/depth_single/
+dataset_type = shapenet
+random_seed = 42
+
+use_depth = True
+white_bkgd = True
+shapenet_train = 1
+shapenet_val = 0
+shapenet_test = 0
+single_obj_val_num = 5
+resolution_scale = .5
+
+use_rotation = True
+use_viewdirs = True
+multires = 6
+multires_views = 0
+
+feature_len = 256
+use_feature_volume = True
+skip_type = add
+freeze_encoder = True
+unfreeze_from = 100
+i_train_encoder = 2500
+
+N_rand = 3600
+N_samples = 16
+N_importance = 16
+separate_fine = True
+perturb = 1.
+
+chunk = 20480
+
+i_video = 1000
+i_weights = 500
+i_img = 250
+N_iters = 5000
+i_log_target = 250
+i_testset = 99999999999

@@ -43,6 +43,10 @@ def config_parser():
                         help='specific weights npy file to reload for coarse network')
     parser.add_argument("--random_seed", type=int, default=None,
                         help='fix random seed for repeatability')
+    parser.add_argument("--freeze_encoder", action='store_true',
+                        help='freeze the weights in the pretrained encoder')
+    parser.add_argument("--unfreeze_from", type=int, default=150,
+                        help='number of bottom layers kept untrainable')
     
     # pre-crop options
     parser.add_argument("--precrop_iters", type=int, default=0,
@@ -123,6 +127,10 @@ def config_parser():
                         help='frequency of render_poses video saving')
     parser.add_argument("--i_log_target",   type=int, default=99999999999,
                         help='frequency of generating a image for a target image from training dataset')
+    parser.add_argument("--N_iters", type=int, default=200000,
+                        help='number of iterations for training')
+    parser.add_argument("--i_train_encoder", type=int, default=50000,
+                        help='number of iterations for starting training the encoder')
 
     # rotation equivariant option
     parser.add_argument("--use_rotation", action='store_true',
@@ -133,6 +141,9 @@ def config_parser():
                         help='depth of rotational MLP to rotate feature')
     parser.add_argument("--feature_len", type=int, default=256,
                         help='length of feature vector extracted from image')
+    parser.add_argument("--use_feature_volume", action='store_true',
+                    help='use feature volume + local feature for decoding')
+
 
     # shapenet options
     parser.add_argument("--shapenet_train", type=int, default=5,
@@ -147,6 +158,8 @@ def config_parser():
                         help='train with all train_objs, but val using different views of the same objs')
     parser.add_argument("--val_all", action='store_true',
                         help='during validation, use all val objects')
+    parser.add_argument("--single_obj_val_num", type=int, default=5,
+                        help='for single object mode, controls number of images reserved for validation')
 
     parser.add_argument("--use_depth", action='store_true',
                         help='use depth map as supervision')
