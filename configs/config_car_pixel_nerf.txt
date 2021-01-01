@@ -1,0 +1,42 @@
+expname = car_pixel_nerf_partial_freeze
+description = 'experiment with pixel nerf with rgb'
+
+basedir = ./logs
+datadir = ./data/shapenet/depth_100_5/
+dataset_type = shapenet
+random_seed = 42
+
+use_depth = False
+white_bkgd = True
+shapenet_train = 90
+shapenet_val = 10
+shapenet_test = 0
+single_obj_val_num = 5
+resolution_scale = .5
+
+use_rotation = True
+use_viewdirs = True
+multires = 6
+multires_views = 0
+
+feature_len = 256
+use_feature_volume = True
+skip_type = add
+freeze_encoder = True
+unfreeze_from = 80
+i_train_encoder = 10000
+
+N_rand = 3600
+N_samples = 16
+N_importance = 16
+separate_fine = True
+perturb = 1.
+
+chunk = 20480
+
+i_video = 20000
+i_weights = 2000
+i_img = 2000
+N_iters = 500000
+i_log_target = 2000
+i_testset = 99999999999

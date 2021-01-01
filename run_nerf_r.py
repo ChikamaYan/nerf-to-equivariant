@@ -25,6 +25,7 @@ from model.models import *
 
 tf.compat.v1.enable_eager_execution()
 
+args = None
 
 def batchify(fn, chunk):
     """Constructs a version of 'fn' that applies to smaller batches."""
@@ -95,8 +96,11 @@ def run_network(inputs, select_coords, input_image, input_pose, viewdirs, networ
     # removed batchfy for pts here
     outputs_flat = network_fn['decoder'](embedded)
     outputs = tf.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
-    # last element in the output shape is the output channel
-    outputs = tf.concat([outputs,outputs,outputs,outputs],axis=-1)
+
+    if args.use_depth:
+        # if use depth, the model returns 1 channel output
+        # need to manually expand it to 3 channels
+        outputs = tf.concat([outputs,outputs,outputs,outputs],axis=-1)
     return outputs, feature
 
 
@@ -110,8 +114,12 @@ def create_nerf(args, hwf):
     if args.use_viewdirs:
         embeddirs_fn, input_ch_views = get_embedder(
             args.multires_views, args.i_embed)
-    output_ch = 1
-    skips = [2,4,6]
+
+    if args.use_depth:
+        output_ch = 1
+    else:
+        output_ch = 4
+    skips = [1,3,5]
     # skip specifies the indices of layers that need skip connection
 
     encoder = init_pixel_nerf_encoder(input_ch_image=(hwf[0],hwf[1],3), feature_depth=args.feature_len, args=args)
@@ -407,11 +415,15 @@ def render_rays(ray_batch,
 
     # Evaluate model at each point.
     raw, feature = network_query_fn(pts_input_view, select_coords, input_image, input_pose, viewdirs_input_view, network_fn)  # [N_rays, N_samples, 4]
-    _, disp_map, acc_map, weights, rgb_map = raw2outputs(
+    rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(
         raw, z_vals, rays_d)
 
-    rgb_map = tf.concat([rgb_map[:,None],rgb_map[:,None],rgb_map[:,None]],axis=-1)
-    rgb_map = rgb_map/2.
+    if args.use_depth:
+        # if use depth for training, discard rgb output
+        rgb_map = depth_map
+
+        rgb_map = tf.concat([rgb_map[:,None],rgb_map[:,None],rgb_map[:,None]],axis=-1)
+        rgb_map = rgb_map / 3. # divide by far bound so the value remains in range 0 ~ 1 
 
     if N_importance > 0:
         # _0 are the coarse estimation if N_impoartance > 0
@@ -437,12 +449,14 @@ def render_rays(ray_batch,
         run_fn = network_fn if network_fine is None else {'decoder': network_fine}
         # re-use the same feature
         raw, _ = network_query_fn(pts_input_view, select_coords, input_image, input_pose, viewdirs_input_view, run_fn, feature=feature)
-        _, disp_map, acc_map, weights, rgb_map = raw2outputs(
+        rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(
             raw, z_vals, rays_d)
-        
-        rgb_map = tf.concat([rgb_map[:,None],rgb_map[:,None],rgb_map[:,None]],axis=-1)
-        # normalize to fit the far/near bound
-        rgb_map = rgb_map/2.
+
+        if args.use_depth:
+            rgb_map = depth_map
+            rgb_map = tf.concat([rgb_map[:,None],rgb_map[:,None],rgb_map[:,None]],axis=-1) # TODO
+            # normalize to fit the far/near bound
+            rgb_map = rgb_map / 3.
 
     ret = {'rgb_map': rgb_map, 'disp_map': disp_map, 'acc_map': acc_map, 'feature': feature}
     if retraw:
@@ -603,13 +617,13 @@ def render_path(render_poses, hwf, chunk, render_kwargs, input_image=None, pose=
 
 
 def train():
+    global args
 
     parser = config_parser()
     args = parser.parse_args()
 
-    if not args.use_depth:
-        print("ERROR! only depth is supported on this branch for now")
-        return
+    if args.use_depth:
+        print("Training with depth")
     
     if args.random_seed is not None:
         print('Fixing random seed', args.random_seed)

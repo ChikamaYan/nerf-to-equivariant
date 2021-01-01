@@ -64,13 +64,16 @@ def fix_rotation(azimuth, elevation):
     return (90 + azimuth) * np.pi/180.0, (90 - elevation) * np.pi/180.0
 
 
-def load_shapenet_data(basedir='./data/shapenet/depth/', resolution_scale=1., sample_nums=(5, 2, 1), fix_objects=None, args=None):
+def load_shapenet_data(basedir='./data/shapenet/', resolution_scale=1., sample_nums=(5, 2, 1), fix_objects=None, args=None):
     SINGLE_OBJ = False
 
     all_imgs = []
     all_poses = []
 
-    imgs_dir = os.path.join(basedir,'syn_depth')
+    if args.use_depth:
+        imgs_dir = os.path.join(basedir,'syn_depth')
+    else:
+        imgs_dir = os.path.join(basedir,'syn_rgb')
 
 
     if fix_objects is not None:
@@ -98,7 +101,10 @@ def load_shapenet_data(basedir='./data/shapenet/depth/', resolution_scale=1., sa
     obj_indices = []
 
     for obj in objs:
-        rendering_path = os.path.join(basedir,'syn_depth', obj)
+        if args.use_depth:
+            rendering_path = os.path.join(basedir,'syn_depth', obj)
+        else:
+            rendering_path = os.path.join(basedir,'syn_rgb', obj)
         renderings = [name for name in os.listdir(rendering_path)
                 if name.endswith('.png')]
         renderings.sort()
@@ -157,7 +163,9 @@ def load_shapenet_data(basedir='./data/shapenet/depth/', resolution_scale=1., sa
     W = int(W * resolution_scale)
     focal = focal * resolution_scale
     all_imgs = np.array(all_imgs).astype(np.float32)
-    all_imgs = np.stack([all_imgs,all_imgs,all_imgs],axis=-1) # expand 1 channel depth value to 3 channel rgb values
+    if args.use_depth:
+        # expand 1 channel depth value to 3 channel rgb values
+        all_imgs = np.stack([all_imgs,all_imgs,all_imgs],axis=-1) 
     all_imgs = tf.image.resize_area(all_imgs, [H, W]).numpy()
 
     if resolution_scale < 0.4:
