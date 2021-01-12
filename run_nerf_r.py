@@ -494,7 +494,7 @@ def render(H, W, focal,
 
       pose: c2w tranformation matrix of input image
 
-      c2w: array of shape [3, 4]. Camera-to-world transformation matrix.
+      c2w: array of shape [3, 4]. Camera-to-world transformation matrix of target view.
       ndc: bool. If True, represent ray origin, direction in NDC coordinates.
       near: float or array of shape [batch_size]. Nearest distance for a ray.
       far: float or array of shape [batch_size]. Farthest distance for a ray.
@@ -945,7 +945,8 @@ def train():
 
         if i % args.i_video == 0 and i > 0:
             viddir = os.path.join(basedir, expname, 'videos')
-            os.makedirs(viddir, exist_ok=True)
+            if not os.path.exists(viddir):
+                os.makedirs(viddir, exist_ok=True)
 
             # generate video for test object
             # not needed to test time optimisation task
@@ -997,7 +998,7 @@ def train():
                                                     **render_kwargs_test)
             # Save out the validation image for Tensorboard-free monitoring
             testimgdir = os.path.join(basedir, expname, 'tboard_train_imgs')
-            if i==0:
+            if not os.path.exists(testimgdir):
                 os.makedirs(testimgdir, exist_ok=True)
             imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj.png'.format(i)), to8b(rgb))
             imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_ground_truth_in.png'.format(i)), to8b(input_img))
@@ -1007,11 +1008,11 @@ def train():
             psnr = mse2psnr(mse)
 
             with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-                tf.contrib.summary.image('rgb_train', to8b(rgb)[tf.newaxis])
+                # tf.contrib.summary.image('rgb_train', to8b(rgb)[tf.newaxis])
 
                 tf.contrib.summary.scalar('psnr_train_img', psnr)
                 tf.contrib.summary.scalar('loss_train_img', mse)
-                tf.contrib.summary.image('rgb_train_img', target_img[tf.newaxis])
+                # tf.contrib.summary.image('rgb_train_img', target_img[tf.newaxis])
 
 
         if i % args.i_print == 0 or i < 10 or i % args.i_img == 0:
@@ -1052,32 +1053,32 @@ def train():
                     
                     # Save out the validation image for Tensorboard-free monitoring
                     testimgdir = os.path.join(basedir, expname, 'tboard_val_imgs')
-                    if i==0:
+                    if not os.path.exists(testimgdir):
                         os.makedirs(testimgdir, exist_ok=True)
                     imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_{}.png'.format(i, obj_i)), to8b(rgb))
                     imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_{}_ground_truth.png'.format(i, obj_i)), to8b(target))
 
                     with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
 
-                        tf.contrib.summary.image('rgb_obj_{}'.format(obj_i), to8b(rgb)[tf.newaxis])
-                        tf.contrib.summary.image(
-                            'disp_obj_{}'.format(obj_i), disp[tf.newaxis, ..., tf.newaxis])
-                        tf.contrib.summary.image(
-                            'acc_obj_{}'.format(obj_i), acc[tf.newaxis, ..., tf.newaxis])
+                        # tf.contrib.summary.image('rgb_obj_{}'.format(obj_i), to8b(rgb)[tf.newaxis])
+                        # tf.contrib.summary.image(
+                        #     'disp_obj_{}'.format(obj_i), disp[tf.newaxis, ..., tf.newaxis])
+                        # tf.contrib.summary.image(
+                        #     'acc_obj_{}'.format(obj_i), acc[tf.newaxis, ..., tf.newaxis])
 
                         tf.contrib.summary.scalar('psnr_holdout_obj_{}'.format(obj_i), psnr)
                         tf.contrib.summary.scalar('loss_holdout_obj_{}'.format(obj_i), mse)
-                        tf.contrib.summary.image('rgb_holdout_obj_{}'.format(obj_i), target[tf.newaxis])
+                        # tf.contrib.summary.image('rgb_holdout_obj_{}'.format(obj_i), target[tf.newaxis])
 
-                    if args.N_importance > 0:
+                    # if args.N_importance > 0:
 
-                        with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-                            tf.contrib.summary.image(
-                                'rgb0_obj_{}'.format(obj_i), to8b(extras['rgb0'])[tf.newaxis])
-                            tf.contrib.summary.image(
-                                'disp0_obj_{}'.format(obj_i), extras['disp0'][tf.newaxis, ..., tf.newaxis])
-                            tf.contrib.summary.image(
-                                'z_std_obj_{}'.format(obj_i), extras['z_std'][tf.newaxis, ..., tf.newaxis])
+                        # with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
+                        #     tf.contrib.summary.image(
+                        #         'rgb0_obj_{}'.format(obj_i), to8b(extras['rgb0'])[tf.newaxis])
+                        #     tf.contrib.summary.image(
+                        #         'disp0_obj_{}'.format(obj_i), extras['disp0'][tf.newaxis, ..., tf.newaxis])
+                        #     tf.contrib.summary.image(
+                        #         'z_std_obj_{}'.format(obj_i), extras['z_std'][tf.newaxis, ..., tf.newaxis])
 
         global_step.assign_add(1)
 
