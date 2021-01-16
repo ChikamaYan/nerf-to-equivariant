@@ -27,6 +27,8 @@ def config_parser():
                         help='channels per layer in fine network')
     parser.add_argument("--N_rand", type=int, default=32*32*4,
                         help='batch size (number of random rays per gradient step)')
+    parser.add_argument("--N_object", type=int, default=1,
+                        help='batch size (number of objects per gradient step) note that for each object #N_rand rays will be drawn')
     parser.add_argument("--lrate", type=float,
                         default=5e-4, help='learning rate')
     parser.add_argument("--lrate_decay", type=int, default=250,

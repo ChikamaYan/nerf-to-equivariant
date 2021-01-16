@@ -647,11 +647,11 @@ def train():
         images, poses, render_poses, hwf, i_split, obj_indices, obj_names, obj_split = load_shapenet_data(
                         args.datadir, resolution_scale=args.resolution_scale,
                         sample_nums=sample_nums, fix_objects=args.fix_objects, args=args)
-        # images: (n.H,W,C) array containing all images
+        # images: (n,H,W,C) array containing all images
         # i_split: list of length 3, each element is a numpy array containing all the image ids for train/val/test
         # obj_indices: (n_obj,n_view) array, n_obj is the number of objects, n_view is number of view points/images for each object
         # obj_names: (n_obj) array containing the name of each object
-        # obj_split: list of len 3, each element is a numpy array containing all the object ids for trainval/test
+        # obj_split: list of len 3, each element is a numpy array containing all the object ids for train/val/test
         
         print('Loaded shapenet', images.shape,
               render_poses.shape, hwf, args.datadir)
@@ -821,107 +821,111 @@ def train():
             models['encoder'].summary()
 
 
-        # Sample random ray batch
-        if args.use_rotation:
-            # in order to apply rotation equivariant, need to pick two images from train set
-            # if training with multiple objects, this part of code needs to be further modifed
-
-            if args.dataset_type == 'shapenet' and sample_nums != (1,0,0):
-                # need to make sure two images are from same object
-                # if using single object, same as lego data
-                obj_i = np.random.choice(np.arange(0, args.shapenet_train), 1)[0]
-                img_i, target_i = np.random.choice(obj_indices[obj_i], 2, replace=False)
-
-            else:
-                # single object mode
-                img_i, target_i = np.random.choice(i_train, 2, replace=False)
-                
-            traget_rays_rgb_index = np.where(i_train==target_i)[0][0]
-            # traget_rays_rgb_index is the index in rays_rgb
-            # needed because rays_rgb only contain rays for train imgs
-            input_img = images[img_i]
-            target_img = images[target_i]
-            input_pose = poses[img_i, :3, :4]
-            target_pose = poses[target_i, :3, :4]
-
-        else:
-            # don't use rotation, but still input image + coordinates
-            img_i = np.random.choice(i_train,1)[0]
-            traget_rays_rgb_index = np.where(i_train==img_i)[0][0]
-            input_img = images[img_i]
-            target_img = images[img_i]
-            input_pose = poses[img_i, :3, :4]
-            target_pose = input_pose
-
-        # select ray indices for training
-        coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
-        coords = tf.reshape(coords, [-1, 2])
-
-        select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)
-        select_inds = tf.gather_nd(coords, select_inds[:, tf.newaxis])
-        if N_rand == coords.shape[0]:
-            # if use full image train, then don't shuffle
-            select_inds = coords
-        # input('Note that full image train without shuffling has been used!')
-
-        # select rays using pose of target image
-        batch = tf.gather_nd(rays_rgb[traget_rays_rgb_index], select_inds) # [N_rand,3,3]
-        batch_rays, target_s = batch[:,:2,:], batch[:,2,:]
-        batch_rays = tf.transpose(batch_rays,[1,0,2])
-
         #####  Core optimization loop  #####
 
+        obj_ids = np.random.choice(obj_split[0], args.N_object)
+
         with tf.GradientTape(persistent=True) as tape:
-
-            # Make predictions for color, disparity, accumulated opacity.
-            rgb, disp, acc, feature, extras = render(
-                H, W, focal, chunk=args.chunk, rays=batch_rays, select_coords=select_inds, image=input_img, pose=input_pose,
-                verbose=i<10, retraw=True, **render_kwargs_train)
-
-
-
-            # log rgb for debugging
-            # testimgdir = os.path.join(basedir, expname, 'tboard_train_imgs')
-            # if i==0:
-            #     os.makedirs(testimgdir, exist_ok=True)
-            # imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_train.png'.format(i)), to8b(tf.reshape(rgb,[60,60,3])))
-            # imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_ground_truth_in_train.png'.format(i)), to8b(input_img))
-            # imageio.imwrite(os.path.join(testimgdir, '{:06d}_obj_ground_truth_target_train.png'.format(i)), to8b(target_img))
-
-            # Compute MSE loss between predicted and true RGB.
-            img_loss = img2mse(rgb, target_s)
-            trans = extras['raw'][..., -1]
-            # what is trans? -- [:,:,4] of the raw outputs from NN 
-            psnr = mse2psnr(img_loss)
-
-            # Add MSE loss for coarse-grained model
-            if 'rgb0' in extras:
-                img_loss0 = img2mse(extras['rgb0'], target_s)
-                img_loss += img_loss0 # how does this work?
-                psnr0 = mse2psnr(img_loss0)
-
-            overall_loss = img_loss
+            overall_loss = tf.zeros(1)
             tape.watch(overall_loss)
-            # Compute MSE for rotation
-            rot_loss = tf.constant(0,dtype="float32")
-            if args.use_rotation:
-                feature_target = compute_features(target_img, target_pose, render_kwargs_train['network_fn']['encoder'])
-                rot_loss = tf.keras.losses.MeanSquaredError()(feature_target, feature)
 
-                # compute the sum of loss
-                # overall_loss += rot_loss
+            for obj_i in obj_ids:
+            # sample rays for this object
+                with tape.stop_recording():
+                    if args.use_rotation:
+                        # in order to apply rotation equivariant, need to pick two images from train set
+                        # if training with multiple objects, this part of code needs to be further modifed
+
+                        if args.dataset_type == 'shapenet' and sample_nums != (1,0,0):
+                            # need to make sure two images are from same object
+                            # if using single object, same as lego data
+                            img_i, target_i = np.random.choice(obj_indices[obj_i], 2, replace=False)
+
+                        else:
+                            # single object mode
+                            img_i, target_i = np.random.choice(i_train, 2, replace=False)
+                            
+                        traget_rays_rgb_index = np.where(i_train==target_i)[0][0]
+                        # traget_rays_rgb_index is the index in rays_rgb
+                        # needed because rays_rgb only contain rays for train imgs
+                        input_img = images[img_i]
+                        target_img = images[target_i]
+                        input_pose = poses[img_i, :3, :4]
+                        target_pose = poses[target_i, :3, :4]
+
+                    else:
+                        # don't use rotation, but still input image + coordinates
+                        img_i = np.random.choice(i_train,1)[0]
+                        traget_rays_rgb_index = np.where(i_train==img_i)[0][0]
+                        input_img = images[img_i]
+                        target_img = images[img_i]
+                        input_pose = poses[img_i, :3, :4]
+                        target_pose = input_pose
+
+                    # select ray indices for training
+                    coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
+                    coords = tf.reshape(coords, [-1, 2])
+
+                    select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)
+                    select_inds = tf.gather_nd(coords, select_inds[:, tf.newaxis])
+                    if N_rand == coords.shape[0]:
+                        # if use full image train, then don't shuffle
+                        # only used for debugging
+                        select_inds = coords
+                        input('Note that full image train without shuffling has been used!')
+
+                    # select rays using pose of target image
+                    batch = tf.gather_nd(rays_rgb[traget_rays_rgb_index], select_inds) # [N_rand,3,3]
+                    batch_rays, target_s = batch[:,:2,:], batch[:,2,:]
+                    batch_rays = tf.transpose(batch_rays,[1,0,2])
+
+
+                # Make predictions for color, disparity, accumulated opacity.
+                rgb, disp, acc, feature, extras = render(
+                    H, W, focal, chunk=args.chunk, rays=batch_rays, select_coords=select_inds, image=input_img, pose=input_pose,
+                    verbose=i<10, retraw=True, **render_kwargs_train)
+
+
+                # Compute MSE loss between predicted and true RGB.
+                img_loss = img2mse(rgb, target_s)
+                trans = extras['raw'][..., -1]
+                # what is trans? -- [:,:,4] of the raw outputs from NN 
+                psnr = mse2psnr(img_loss)
+
+                # Add MSE loss for coarse-grained model
+                if 'rgb0' in extras:
+                    img_loss0 = img2mse(extras['rgb0'], target_s)
+                    img_loss += img_loss0 # how does this work?
+                    psnr0 = mse2psnr(img_loss0)
+
+                # Compute MSE for rotation
+                rot_loss = tf.constant(0,dtype="float32")
+
+                # if args.use_rotation:
+                #     feature_target = compute_features(target_img, target_pose, render_kwargs_train['network_fn']['encoder'])
+                #     rot_loss = tf.keras.losses.MeanSquaredError()(feature_target, feature)
+
+                #     # compute the sum of loss
+                #     overall_loss += rot_loss
+
+                # accumulate loss for each object
+                # need to check
+                overall_loss += img_loss
+                
                 
 
 
         enc_vars = models['encoder'].trainable_variables
-        gradients = tape.gradient(overall_loss, enc_vars)
-        zips = list(zip(gradients, enc_vars))
+        # gradients = tape.gradient(overall_loss, enc_vars)
+        # zips = list(zip(gradients, enc_vars))
 
         dec_vars = models['decoder'].trainable_variables
         if 'decoder_fine' in models:
             dec_vars += models['decoder_fine'].trainable_variables
-        gradients = tape.gradient(overall_loss, dec_vars)
-        zips += list(zip(gradients, dec_vars))
+
+        all_vars = enc_vars + dec_vars
+        gradients = tape.gradient(overall_loss, all_vars)
+        zips = list(zip(gradients, all_vars))
         optimizer.apply_gradients(zips)
 
         del tape # garbage collect the persistent tape
