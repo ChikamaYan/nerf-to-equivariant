@@ -55,13 +55,13 @@ def compute_features(input_image, input_pose, encoder):
     return feature
 
 
-def run_network(inputs, select_coords, input_image, input_pose, viewdirs, network_fn, embed_fn, embeddirs_fn, netchunk=1024*64, feature=None):
+def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network_fn, embed_fn, embeddirs_fn, netchunk=1024*64, feature=None):
     """
     Prepares inputs and applies network 'fn'.
 
     Input:
         inputs: 3D coordinates in world space of sampled points, shape [B, S, 3] where B=#batch, S=#sampled points for a pixel
-        select_coords: the 2D pixel coordinates of those points, shape [B, 2]
+        pixel_coords: the 2D pixel coordinates of those points, shape [B, 2]
 
     
     """
@@ -83,9 +83,9 @@ def run_network(inputs, select_coords, input_image, input_pose, viewdirs, networ
     if len(feature.shape) > 2:
         # returned feature is a volume, take samples for each pixel
         # for each query point, sample corresponding feature
-        select_coords = tf.expand_dims(select_coords,axis=1)
-        select_coords = tf.tile(select_coords,[1, inputs.shape[1], 1])
-        features_sampled = tf.gather_nd(feature[0,...],select_coords)
+        # pixel_coords = tf.expand_dims(pixel_coords,axis=1)
+        # pixel_coords = tf.tile(pixel_coords,[1, inputs.shape[1], 1])
+        features_sampled = tf.gather_nd(feature[0,...],pixel_coords)
         features_sampled = tf.reshape(features_sampled,[-1, features_sampled.shape[-1]])
     else:
         # global feature vector
@@ -149,8 +149,8 @@ def create_nerf(args, hwf):
         models['decoder_fine'] = decoder_fine
 
 
-    def network_query_fn(inputs, select_coords, input_image, input_pose, viewdirs, network_fn, feature=None): return run_network(
-        inputs, select_coords, input_image, input_pose, viewdirs, network_fn, feature=feature,
+    def network_query_fn(inputs, pixel_coords, input_image, input_pose, viewdirs, network_fn, feature=None): return run_network(
+        inputs, pixel_coords, input_image, input_pose, viewdirs, network_fn, feature=feature,
         embed_fn=embed_fn,
         embeddirs_fn=embeddirs_fn,
         netchunk=args.netchunk)
@@ -210,7 +210,6 @@ def create_nerf(args, hwf):
 
 
 def render_rays(ray_batch,
-                select_coords,
                 input_image,
                 input_pose,
                 network_fn,
@@ -223,7 +222,8 @@ def render_rays(ray_batch,
                 network_fine=None,
                 white_bkgd=False,
                 raw_noise_std=0.,
-                verbose=False):
+                verbose=False,
+                hwf=None):
     """Volumetric rendering.
 
     Args:
@@ -379,14 +379,13 @@ def render_rays(ray_batch,
     pts = rays_o[..., None, :] + rays_d[..., None, :] * \
         z_vals[..., :, None]  # [N_rays, N_samples, 3
 
-    def transform_coord_sys(vecs, input_pose, normalize=False):
+    def transform_coord_sys(vecs, input_pose):
         '''
-        Transform 3D points or view dirs into input view's coordinate system
+        Transform 3D points into input view's coordinate system. Full transformation (rot+trans) is used.
 
         Input:
-            vecs: (B,S,3) vectors of 3D coordinates or view dirs. #S is the number of samples
+            vecs: (B,S,3) vectors of 3D coordinates. #S is the number of samples
             input_pose: input view's coordinate system of shape (3, 4)
-            normalize: whether to normalize after transform. needed for transforming view dirs
         '''
         # convert those points from world coordinate to input view camera coordiate
         input_pose_full = tf.concat([input_pose,[[0,0,0,1]]], axis=0)
@@ -399,22 +398,56 @@ def render_rays(ray_batch,
         vecs_input_view = tf.transpose(vecs_input_view[:3,:])
         vecs_input_view = tf.reshape(vecs_input_view, vecs.shape)
 
-        # # caculate correct view dirs in input view's coordinate
-        # # seems to be incorrect
-        # input_origin = vecs[:3, -1]
-        # viewdirs = pts_input_view - input_origin[None, None, :]
-        # viewdirs = viewdirs / tf.math.reduce_sum(viewdirs**2, axis=-1, keepdims=True)**0.5
+        return vecs_input_view
 
-        if normalize:
-            vecs_input_view = vecs_input_view / tf.math.reduce_sum(vecs_input_view**2, axis=-1, keepdims=True)**0.5
+    def transform_coord_sys_dirs(vecs, input_pose):
+        '''
+        Transform view dirs into input view's coordinate system. Only rotation is used for this translation
+
+        Input:
+            vecs: (B,S,3) vectors of view dirs. #S is the number of samples
+            input_pose: input view's coordinate system of shape (3, 4)
+        '''
+        # convert those vectors from world coordinate to input view camera coordiate
+        vecs_input_view = tf.transpose(tf.reshape(vecs, (-1, 3)))
+
+        vecs_input_view = tf.linalg.inv(input_pose[:3,:3]) @ vecs_input_view
+
+        vecs_input_view = tf.transpose(vecs_input_view[:3,:])
+        vecs_input_view = tf.reshape(vecs_input_view, vecs.shape)
+
+        # normalize for view dirs
+        vecs_input_view = vecs_input_view / tf.math.reduce_sum(vecs_input_view**2, axis=-1, keepdims=True)**0.5
 
         return vecs_input_view
 
+    def find_pixel_coords(pts_input_view, hwf):
+        '''
+        Find the corresponding pixel coordinates for the point
+        '''
+        ray_dirs_input_view = pts_input_view # because all pts are in input view coordinate system
+        ray_dirs_input_view_norm = ray_dirs_input_view / (-1 * ray_dirs_input_view[...,-1:])
+
+        ray_dirs_input_view_clamp = tf.clip_by_value(ray_dirs_input_view_norm[...,:2],-0.5,0.5) # clamp for pts that fall outside of the range
+
+        H,W,focal = hwf
+
+        pixel_coords = ray_dirs_input_view_clamp.numpy()
+        pixel_coords[...,0] = ray_dirs_input_view_clamp[...,0] * focal + 0.5*W
+        pixel_coords[...,1] = 0.5*H - ray_dirs_input_view_clamp[...,1] * focal
+        pixel_coords = tf.convert_to_tensor(pixel_coords)
+        pixel_coords = tf.cast(pixel_coords,tf.int32)
+        pixel_coords = tf.clip_by_value(pixel_coords,0,np.max([H,W]))
+
+        return pixel_coords
+    
     pts_input_view = transform_coord_sys(pts, input_pose)
-    viewdirs_input_view = transform_coord_sys(viewdirs, input_pose, normalize=True)
+    viewdirs_input_view = transform_coord_sys_dirs(viewdirs, input_pose)
+
+    pixel_coords = find_pixel_coords(pts_input_view, hwf)
 
     # Evaluate model at each point.
-    raw, feature = network_query_fn(pts_input_view, select_coords, input_image, input_pose, viewdirs_input_view, network_fn)  # [N_rays, N_samples, 4]
+    raw, feature = network_query_fn(pts_input_view, pixel_coords, input_image, input_pose, viewdirs_input_view, network_fn)  # [N_rays, N_samples, 4]
     rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(
         raw, z_vals, rays_d)
 
@@ -423,7 +456,7 @@ def render_rays(ray_batch,
         rgb_map = depth_map
 
         rgb_map = tf.concat([rgb_map[:,None],rgb_map[:,None],rgb_map[:,None]],axis=-1)
-        rgb_map = rgb_map / 3. # divide by far bound so the value remains in range 0 ~ 1 
+        rgb_map = rgb_map / 1.5 # divide by far bound so the value remains in range 0 ~ 1 
 
     if N_importance > 0:
         # _0 are the coarse estimation if N_impoartance > 0
@@ -443,12 +476,14 @@ def render_rays(ray_batch,
 
 
         pts_input_view = transform_coord_sys(pts, input_pose)
-        viewdirs_input_view = transform_coord_sys(viewdirs, input_pose, normalize=True)
+        viewdirs_input_view = transform_coord_sys_dirs(viewdirs, input_pose)
+
+        pixel_coords = find_pixel_coords(pts_input_view, hwf)
 
         # Make predictions with network_fine if it exists
         run_fn = network_fn if network_fine is None else {'decoder': network_fine}
         # re-use the same feature
-        raw, _ = network_query_fn(pts_input_view, select_coords, input_image, input_pose, viewdirs_input_view, run_fn, feature=feature)
+        raw, _ = network_query_fn(pts_input_view, pixel_coords, input_image, input_pose, viewdirs_input_view, run_fn, feature=feature)
         rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(
             raw, z_vals, rays_d)
 
@@ -474,7 +509,7 @@ def render_rays(ray_batch,
 
 
 def render(H, W, focal,
-           chunk=1024*32, rays=None, select_coords=None, image=None, 
+           chunk=1024*32, rays=None, image=None, 
            pose=None, c2w=None, ndc=True,
            near=0., far=1.,
            use_viewdirs=False, c2w_staticcam=None,
@@ -489,8 +524,6 @@ def render(H, W, focal,
         control maximum memory usage. Does not affect final results.
       rays: array of shape [2, batch_size, 3]. Ray origin and direction for
         each example in batch.
-      select_coords: pixel coordinates of selected pixels. Used to extract local feature.
-        If None, assumes in order pixels covering the whole image
 
       pose: c2w tranformation matrix of input image
 
@@ -508,10 +541,6 @@ def render(H, W, focal,
       acc_map: [batch_size]. Accumulated opacity (alpha) along a ray.
       extras: dict with everything returned by render_rays().
     """
-
-    if select_coords is None:
-        select_coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
-        select_coords = tf.reshape(select_coords, [-1, 2])
 
     if c2w is not None:
         # special case to render full image
@@ -551,11 +580,11 @@ def render(H, W, focal,
         rays = tf.concat([rays, viewdirs], axis=-1)
 
 
-    def batchify_rays(rays_flat, select_coords, image, pose, chunk=1024*32, **kwargs):
+    def batchify_rays(rays_flat, image, pose, chunk=1024*32, **kwargs):
         """Render rays in smaller minibatches to avoid OOM."""
         all_ret = {}
         for i in range(0, rays_flat.shape[0], chunk):
-            ret = render_rays(rays_flat[i:i+chunk], select_coords[i:i+chunk], image, pose, **kwargs)
+            ret = render_rays(rays_flat[i:i+chunk], image, pose, **kwargs, hwf=[H, W, focal])
             for k in ret:
                 if k not in all_ret:
                     all_ret[k] = []
@@ -565,7 +594,7 @@ def render(H, W, focal,
         return all_ret
 
     # Render and reshape
-    all_ret = batchify_rays(rays, select_coords, image, pose, chunk, **kwargs)
+    all_ret = batchify_rays(rays, image, pose, chunk, **kwargs)
     for k in all_ret:
         if 'feature' not in k:
             k_sh = list(sh[:-1]) + list(all_ret[k].shape[1:])
@@ -659,7 +688,7 @@ def train():
 
         # Matches with blender renderer depth clip
         near = 0.
-        far = 3.
+        far = 1.5
 
         if args.view_val:
             # drop all given vals, pick 0, 8, 16, 24 from each object in train
@@ -882,7 +911,7 @@ def train():
 
                 # Make predictions for color, disparity, accumulated opacity.
                 rgb, disp, acc, feature, extras = render(
-                    H, W, focal, chunk=args.chunk, rays=batch_rays, select_coords=select_inds, image=input_img, pose=input_pose,
+                    H, W, focal, chunk=args.chunk, rays=batch_rays, image=input_img, pose=input_pose,
                     verbose=i<10, retraw=True, **render_kwargs_train)
 
 
@@ -1087,4 +1116,5 @@ def train():
         global_step.assign_add(1)
 
 if __name__ == '__main__':
+    np.set_printoptions(suppress=True)
     train()

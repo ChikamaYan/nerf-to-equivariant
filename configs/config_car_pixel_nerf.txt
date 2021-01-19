@@ -1,5 +1,5 @@
-expname = car_pixel_nerf_partial_freeze_3_obj
-description = 'experiment with pixel nerf with rgb. experiment training using multiple objects. Also it tried to use better gradient update'
+expname = car_pixel_nerf_partial_freeze_3_obj_fix_local_feature
+description = 'experiment with pixel nerf with rgb. experiment training using multiple objects. It fixes the bug with local feature'
 
 basedir = ./logs
 datadir = ./data/shapenet/depth_100_5/
@@ -27,7 +27,7 @@ unfreeze_from = 80
 i_train_encoder = 10000
 
 N_rand = 1024
-N_object = 3
+N_object = 4
 N_samples = 16
 N_importance = 16
 separate_fine = True
@@ -36,7 +36,7 @@ perturb = 1.
 chunk = 20480
 
 i_video = 20000
-i_weights = 2000
+i_weights = 5000
 i_img = 2000
 N_iters = 500000
 i_log_target = 2000
