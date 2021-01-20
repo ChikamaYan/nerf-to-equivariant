@@ -1,5 +1,5 @@
-expname = car_pixel_nerf_partial_freeze_3_obj_fix_local_feature
-description = 'experiment with pixel nerf with rgb. experiment training using multiple objects. It fixes the bug with local feature'
+expname = car_pixel_nerf_query_z
+description = 'pixel nerf with only depth query'
 
 basedir = ./logs
 datadir = ./data/shapenet/depth_100_5/

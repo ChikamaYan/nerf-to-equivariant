@@ -68,7 +68,10 @@ def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network
     
     """
 
-    inputs_flat = tf.reshape(inputs, [-1, inputs.shape[-1]])
+    if args.query_z_only:
+        inputs_flat = tf.reshape(inputs[...,-1],[-1,1])
+    else:
+        inputs_flat = tf.reshape(inputs, [-1, inputs.shape[-1]])
 
     embedded = embed_fn(inputs_flat)
     if viewdirs is not None:
@@ -109,7 +112,8 @@ def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network
 def create_nerf(args, hwf):
     """Instantiate NeRF's MLP model."""
 
-    embed_fn, input_ch = get_embedder(args.multires, args.i_embed)
+    input_dims = 1 if args.query_z_only else 3
+    embed_fn, input_ch = get_embedder(args.multires, args.i_embed, input_dims=input_dims)
 
     input_ch_views = 0
     embeddirs_fn = None

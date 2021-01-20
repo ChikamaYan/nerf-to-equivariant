@@ -49,6 +49,8 @@ def config_parser():
                         help='freeze the weights in the pretrained encoder')
     parser.add_argument("--unfreeze_from", type=int, default=150,
                         help='number of bottom layers kept untrainable')
+    parser.add_argument("--query_z_only", action='store_true',
+                        help='only use z coordinate (depth) to query local feature')
     
     # pre-crop options
     parser.add_argument("--precrop_iters", type=int, default=0,
