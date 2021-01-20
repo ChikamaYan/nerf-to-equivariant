@@ -37,7 +37,7 @@ chunk = 20480
 
 i_video = 20000
 i_weights = 5000
-i_img = 2000
+i_img = 5000
 N_iters = 500000
-i_log_target = 2000
+i_log_target = 5000
 i_testset = 99999999999

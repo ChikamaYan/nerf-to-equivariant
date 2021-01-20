@@ -89,7 +89,7 @@ def load_shapenet_data(basedir='./data/shapenet/', resolution_scale=1., sample_n
     if sample_nums == (1, 0, 0):
         # signle object mode, doesn't allow i_test
         SINGLE_OBJ = True
-        obj_split = [[], [], []]
+        obj_split = [[0], [0], []]
         print('Using single object mode')
     else:
         sample_counts = [0, sample_nums[0], sample_nums[0] +

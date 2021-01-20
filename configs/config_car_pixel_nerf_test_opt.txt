@@ -1,4 +1,4 @@
-expname = car_pixel_nerf_pf_test_opt
+expname = car_pixel_nerf_fix_feature_test_opt
 description = 'experiment with pixel nerf with rgb with 1 view test time optimisation'
 
 basedir = ./logs
@@ -24,12 +24,12 @@ multires_views = 0
 feature_len = 256
 use_feature_volume = True
 skip_type = add
-freeze_encoder = True
+freeze_encoder = False
 unfreeze_from = 80
 i_train_encoder = 10000
-fix_decoder = True
+fix_decoder = False
 
-N_rand = 3600
+N_rand = 1024
 N_samples = 16
 N_importance = 16
 separate_fine = True
@@ -37,9 +37,9 @@ perturb = 1.
 
 chunk = 20480
 
-i_video = 1
+i_video = 50
 i_weights = 9999999
 i_img = 50
-N_iters = 500000
+N_iters = 480500
 i_log_target = 9999999
 i_testset = 99999999999

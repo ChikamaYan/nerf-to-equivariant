@@ -26,6 +26,8 @@ from model.models import *
 tf.compat.v1.enable_eager_execution()
 
 args = None
+NEAR = 0.
+FAR = 1.5
 
 def batchify(fn, chunk):
     """Constructs a version of 'fn' that applies to smaller batches."""
@@ -456,7 +458,7 @@ def render_rays(ray_batch,
         rgb_map = depth_map
 
         rgb_map = tf.concat([rgb_map[:,None],rgb_map[:,None],rgb_map[:,None]],axis=-1)
-        rgb_map = rgb_map / 1.5 # divide by far bound so the value remains in range 0 ~ 1 
+        rgb_map = rgb_map / FAR # divide by far bound so the value remains in range 0 ~ 1 
 
     if N_importance > 0:
         # _0 are the coarse estimation if N_impoartance > 0
@@ -687,8 +689,8 @@ def train():
         i_train, i_val, i_test = i_split
 
         # Matches with blender renderer depth clip
-        near = 0.
-        far = 1.5
+        near = NEAR
+        far = FAR
 
         if args.view_val:
             # drop all given vals, pick 0, 8, 16, 24 from each object in train
