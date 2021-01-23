@@ -2,7 +2,7 @@ from model.models import *
 import numpy as np
 
 
-encoder = init_pixel_nerf_encoder()
+encoder = init_pixel_nerf_encoder(use_global=False)
 
 encoder.summary()
 

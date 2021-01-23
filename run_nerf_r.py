@@ -82,30 +82,47 @@ def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network
         # viewing direction is also embedded
         embedded = tf.concat([embedded, embedded_dirs], -1)
 
-    if feature is None:
-        feature = compute_features(input_image, input_pose, network_fn['encoder'])
+    # if feature is None:
+    feature = compute_features(input_image, input_pose, network_fn['encoder'])
+
+    if args.add_global_feature:
+        # additional global featrue is included as result
+        feature, global_feature = feature
 
     if len(feature.shape) > 2:
         # returned feature is a volume, take samples for each pixel
         # for each query point, sample corresponding feature
-        # pixel_coords = tf.expand_dims(pixel_coords,axis=1)
-        # pixel_coords = tf.tile(pixel_coords,[1, inputs.shape[1], 1])
         features_sampled = tf.gather_nd(feature[0,...],pixel_coords)
         features_sampled = tf.reshape(features_sampled,[-1, features_sampled.shape[-1]])
     else:
         # global feature vector
         features_sampled = tf.tile(feature, [embedded.shape[0],1])
     
-    embedded = tf.concat([embedded, features_sampled], -1)
+    network_input = tf.concat([embedded, features_sampled], -1)
 
     # removed batchfy for pts here
-    outputs_flat = network_fn['decoder'](embedded)
+    outputs_flat = network_fn['decoder'](network_input)
     outputs = tf.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
+
+    if args.add_global_feature:
+        global_feature_tiled = tf.tile(global_feature, [embedded.shape[0],1])
+        global_network_input = tf.concat([embedded, global_feature_tiled], -1)
+
+        outputs_flat_global = network_fn['global_decoder'](global_network_input)
+        outputs_global = tf.reshape(outputs_flat_global, list(inputs.shape[:-1]) + [outputs_flat_global.shape[-1]])
+        outputs = [outputs, outputs_global]
+
+        if np.isnan(np.min(outputs[0])):
+            print('nan detected!')
 
     if args.use_depth:
         # if use depth, the model returns 1 channel output
         # need to manually expand it to 3 channels
         outputs = tf.concat([outputs,outputs,outputs,outputs],axis=-1)
+
+    # if args.add_global_feature:
+    #     return outputs, [feature, global_feature]
+
     return outputs, feature
 
 
@@ -128,17 +145,29 @@ def create_nerf(args, hwf):
     skips = [1,3,5]
     # skip specifies the indices of layers that need skip connection
 
-    encoder = init_pixel_nerf_encoder(input_ch_image=(hwf[0],hwf[1],3), feature_depth=args.feature_len, args=args)
+    encoder = init_pixel_nerf_encoder(input_ch_image=(hwf[0],hwf[1],3), feature_depth=args.feature_len, 
+                                      add_global_feature=args.add_global_feature, args=args)
     # feature_depth = encoder.outputs[0].shape[-1]
 
     decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
                                       input_ch_coord=input_ch, 
                                       input_ch_views=input_ch_views, output_ch=output_ch, 
                                       skips=skips, feature_depth=args.feature_len, mode=args.skip_type)
-    
     if args.fix_decoder:
         decoder.trainable = False
+
     models = {'encoder': encoder, 'decoder': decoder}
+
+    if args.add_global_feature:
+        # add an extra global feature decoder
+        global_decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
+                                      input_ch_coord=input_ch, 
+                                      input_ch_views=input_ch_views, output_ch=output_ch, 
+                                      skips=skips, feature_depth=args.feature_len, mode=args.skip_type)
+        if args.fix_decoder:
+            global_decoder.trainable = False
+    
+        models['global_decoder'] = global_decoder
 
     encoder.summary()
     decoder.summary()
@@ -153,6 +182,17 @@ def create_nerf(args, hwf):
         if args.fix_decoder:
             decoder_fine.trainable = False
         models['decoder_fine'] = decoder_fine
+        
+
+        if args.add_global_feature:
+            # add an extra global feature decoder
+            global_decoder_fine = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
+                                        input_ch_coord=input_ch, 
+                                        input_ch_views=input_ch_views, output_ch=output_ch, 
+                                        skips=skips, feature_depth=args.feature_len, mode=args.skip_type)
+            if args.fix_decoder:
+                global_decoder_fine.trainable = False
+            models['global_decoder_fine'] = global_decoder_fine
 
 
     def network_query_fn(inputs, pixel_coords, input_image, input_pose, viewdirs, network_fn, feature=None): return run_network(
@@ -211,6 +251,15 @@ def create_nerf(args, hwf):
             ft_weights_decoder_fine = ft_weights.replace('encoder', 'decoder_fine')
             print('Reloading decoder_fine from', ft_weights_decoder_fine)
             models['decoder_fine'].set_weights(np.load(ft_weights_decoder_fine, allow_pickle=True))
+        if global_decoder is not None:
+            ft_weights_global_decoder = ft_weights.replace('encoder', 'global_decoder')
+            print('Reloading global_decoder from', ft_weights_global_decoder)
+            models['global_decoder'].set_weights(np.load(ft_weights_global_decoder, allow_pickle=True))
+        if global_decoder_fine is not None:
+            ft_weights_global_decoder_fine = ft_weights.replace('encoder', 'global_decoder_fine')
+            print('Reloading global_decoder_fine from', ft_weights_global_decoder_fine)
+            models['global_decoder_fine'].set_weights(np.load(ft_weights_global_decoder_fine, allow_pickle=True))
+
 
     return render_kwargs_train, render_kwargs_test, start, models
 
@@ -283,6 +332,10 @@ def render_rays(ray_batch,
         def raw2alpha(raw, dists, act_fn=tf.nn.relu): return 1.0 - \
             tf.exp(-act_fn(raw) * dists)
 
+        if args.add_global_feature:
+            # if using global feature, return raw is an array
+            raw, raw_global = raw
+
         # Compute 'distance' (in time) between each integration time along a ray.
         dists = z_vals[..., 1:] - z_vals[..., :-1]
 
@@ -293,7 +346,7 @@ def render_rays(ray_batch,
 
         # Multiply each distance by the norm of its corresponding direction ray
         # to convert to real world distance (accounts for non-unit directions).
-        dists = dists * tf.linalg.norm(rays_d[..., None, :], axis=-1)
+        dists = dists # * tf.linalg.norm(rays_d[..., None, :], axis=-1)
 
         # Extract RGB of each sample position along each ray.
         rgb = tf.math.sigmoid(raw[..., :3])  # [N_rays, N_samples, 3]
@@ -307,6 +360,24 @@ def render_rays(ray_batch,
         # Predict density of each sample along each ray. Higher values imply
         # higher likelihood of being absorbed at this point.
         alpha = raw2alpha(raw[..., 3] + noise, dists)  # [N_rays, N_samples]
+
+        if args.add_global_feature:
+            # calculate rgb and density for global predictions as well
+            rgb_global = tf.math.sigmoid(raw_global[..., :3])
+            alpha_global = raw2alpha(raw_global[..., 3] + noise, dists) 
+
+            alpha_non_zero = tf.where(tf.equal(alpha,0), 1e-10*tf.ones_like(alpha), alpha)
+            alpha_global_non_zero = tf.where(tf.equal(alpha_global,0), 1e-10*tf.ones_like(alpha_global), alpha_global)
+
+            # take the weighted average of rgb and sum of density
+            local_weights = (alpha_non_zero / (alpha_non_zero + alpha_global_non_zero))[...,None]
+            # local_weights = 0.5
+            rgb = rgb * local_weights + rgb_global * (1-local_weights)
+            alpha = (alpha + alpha_global)/2
+            # rgb = (rgb + rgb_global)/2
+            # alpha = alpha_global
+            # rgb = rgb_global
+
 
         # Compute weight for RGB of each sample along each ray.  A cumprod() is
         # used to express the idea of the ray not having reflected up to this
@@ -487,7 +558,11 @@ def render_rays(ray_batch,
         pixel_coords = find_pixel_coords(pts_input_view, hwf)
 
         # Make predictions with network_fine if it exists
-        run_fn = network_fn if network_fine is None else {'decoder': network_fine}
+        run_fn = network_fn if network_fine is None else {'encoder': network_fn['encoder'], 'decoder': network_fine}
+        # if use additional global feature, also need to include global find decoder
+        if args.add_global_feature:
+            run_fn['global_decoder'] = network_fn['global_decoder_fine']
+
         # re-use the same feature
         raw, _ = network_query_fn(pts_input_view, pixel_coords, input_image, input_pose, viewdirs_input_view, run_fn, feature=feature)
         rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(
@@ -501,6 +576,8 @@ def render_rays(ray_batch,
 
     ret = {'rgb_map': rgb_map, 'disp_map': disp_map, 'acc_map': acc_map, 'feature': feature}
     if retraw:
+        if args.add_global_feature:
+            raw = tf.concat(raw,axis=-1)
         ret['raw'] = raw
     if N_importance > 0:
         ret['rgb0'] = rgb_map_0
@@ -955,8 +1032,11 @@ def train():
         # zips = list(zip(gradients, enc_vars))
 
         dec_vars = models['decoder'].trainable_variables
-        if 'decoder_fine' in models:
-            dec_vars += models['decoder_fine'].trainable_variables
+
+        optional_decoders = ['decoder_fine', 'global_decoder', 'global_decoder_fine']
+        for name in optional_decoders:
+            if name in models:
+                dec_vars += models[name].trainable_variables
 
         all_vars = enc_vars + dec_vars
         gradients = tape.gradient(overall_loss, all_vars)

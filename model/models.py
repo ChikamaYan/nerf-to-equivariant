@@ -4,7 +4,6 @@ import tensorflow as tf
 import numpy as np
 import imageio
 import json
-# from classification_models.keras import Classifiers
 
 # Model architecture
 
@@ -196,12 +195,16 @@ def init_nerf_r_models(D=8, W=256, D_rotation=2, input_ch_image=(400, 400, 3), i
 
     return [model_encoder, model_decoder]
 
-def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, args=None):
+def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, add_global_feature=False, args=None):
 
     
     '''
     Init encoder from paper pixel nerf
     Uses a ResNet 50 pretrained auto-encoder, outputs feature from each layer concatenated
+
+    Input:
+        feature_depth: the depth of feature volume
+        add_global_feature: whether to keep a global feature from last layer. This would have same size as feature_depth
     '''
 
     relu = tf.keras.layers.ReLU()
@@ -219,7 +222,7 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, arg
     # pretrained_model = ResNet18(include_top=False, input_shape=input_ch_image, pooling='avg', weights='imagenet')
     # inputs_images = preprocess_input(inputs_images)
 
-    use_feature_volume = args.use_feature_volume if args is not None else False
+    use_feature_volume = args.use_feature_volume if args is not None else True
 
     if use_feature_volume:
         # get features from middle layers
@@ -231,13 +234,15 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, arg
         for layer in mid_out_layers:
             feature = pretrained_model.get_layer(layer).output
             features.append(feature)
+        
+        global_feature = pretrained_model.get_layer(mid_out_layers[-1]).output
 
         # rescale features to same size as input image
         HW = inputs_images.shape[1:3]
         for i, feature in enumerate(features):
             features[i] = tf.image.resize(feature, HW)
         features = tf.concat(features, axis=-1)
-        pretrained_encoder = tf.keras.Model(inputs=pretrained_model.inputs, outputs=features, name='resnet50')
+        pretrained_encoder = tf.keras.Model(inputs=pretrained_model.inputs, outputs=(features, global_feature), name='resnet50')
 
     else:
         pretrained_encoder = pretrained_model
@@ -267,7 +272,7 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, arg
 
     # run in inference mode to prevent updating the bactNorm layers
     # but this thing is causing weird behaviour!
-    features = pretrained_encoder(inputs_images, training=True)
+    features, global_feature = pretrained_encoder(inputs_images, training=True)
 
     # pass feature for each pixel to a MLP to shrink size
     features_original_shape = features.shape
@@ -277,6 +282,15 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, arg
     # reshape it to volume
     volume_shape = (features_original_shape[1:-1] + [feature_depth]).as_list()
     features = tf.reshape(features, [-1] + volume_shape)
+
+    # do the same thing for global feature
+    if use_feature_volume and add_global_feature:
+        global_feature = tf.keras.layers.AveragePooling2D(pool_size=global_feature.shape[1:3], strides=1)(global_feature)
+        dim = np.prod(global_feature.shape[1:])    
+        global_feature = tf.reshape(global_feature,[-1,dim])
+        global_feature = dense(feature_depth)(global_feature)
+        features = [features, global_feature]
+
     
     model_encoder = tf.keras.Model(inputs=inputs_encoder, outputs=features, name='encoder')
 

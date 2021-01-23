@@ -51,6 +51,8 @@ def config_parser():
                         help='number of bottom layers kept untrainable')
     parser.add_argument("--query_z_only", action='store_true',
                         help='only use z coordinate (depth) to query local feature')
+    parser.add_argument("--add_global_feature", action='store_true',
+                        help='Use additional global feature and gloabl decoder')
     
     # pre-crop options
     parser.add_argument("--precrop_iters", type=int, default=0,

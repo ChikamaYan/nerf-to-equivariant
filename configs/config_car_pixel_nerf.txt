@@ -1,5 +1,5 @@
-expname = car_pixel_nerf_query_z
-description = 'pixel nerf with only depth query'
+expname = car_pixel_nerf_add_global
+description = 'pixel nerf with additional global feature'
 
 basedir = ./logs
 datadir = ./data/shapenet/depth_100_5/
@@ -25,9 +25,11 @@ skip_type = add
 freeze_encoder = True
 unfreeze_from = 80
 i_train_encoder = 10000
+add_global_feature = True
+query_z_only = False
 
-N_rand = 1024
-N_object = 4
+N_rand = 512
+N_object = 3
 N_samples = 16
 N_importance = 16
 separate_fine = True
