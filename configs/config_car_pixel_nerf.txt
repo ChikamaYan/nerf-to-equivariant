@@ -1,18 +1,19 @@
-expname = car_pixel_nerf_add_global
-description = 'pixel nerf with additional global feature'
+expname = car_pixel_nerf_query_depth_global
+description = 'local feature with depth query and additional global feature on 500 cars'
 
 basedir = ./logs
-datadir = ./data/shapenet/depth_100_5/
+datadir = ./data/shapenet/cars_500_30/
 dataset_type = shapenet
 random_seed = 42
 
 use_depth = False
 white_bkgd = True
-shapenet_train = 90
+shapenet_train = 490
 shapenet_val = 10
 shapenet_test = 0
 single_obj_val_num = 5
-resolution_scale = .5
+resolution_scale = 0.78125
+no_batching = True
 
 use_rotation = True
 use_viewdirs = True
@@ -26,7 +27,7 @@ freeze_encoder = True
 unfreeze_from = 80
 i_train_encoder = 10000
 add_global_feature = True
-query_z_only = False
+query_z_only = True
 
 N_rand = 512
 N_object = 3

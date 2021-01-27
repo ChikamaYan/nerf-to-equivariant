@@ -57,7 +57,7 @@ def compute_features(input_image, input_pose, encoder):
     return feature
 
 
-def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network_fn, embed_fn, embeddirs_fn, netchunk=1024*64, feature=None):
+def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network_fn, embed_fn, embeddirs_fn, netchunk=1024*64, feature=None, global_embed_fn=None):
     """
     Prepares inputs and applies network 'fn'.
 
@@ -69,14 +69,13 @@ def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network
     """
 
     if args.query_z_only:
-        inputs_flat = tf.reshape(inputs[...,-1],[-1,1])
+        inputs_flat = tf.reshape(tf.norm(inputs,axis=-1),[-1,1]) # tf.reshape(inputs[...,-1],[-1,1]) 
     else:
         inputs_flat = tf.reshape(inputs, [-1, inputs.shape[-1]])
 
     embedded = embed_fn(inputs_flat)
     if viewdirs is not None:
         input_dirs = tf.broadcast_to(viewdirs[:, None], inputs.shape)
-        # a different type of reshape
         input_dirs_flat = tf.reshape(input_dirs, [-1, input_dirs.shape[-1]])
         embedded_dirs = embeddirs_fn(input_dirs_flat)
         # viewing direction is also embedded
@@ -105,15 +104,20 @@ def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network
     outputs = tf.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
 
     if args.add_global_feature:
-        global_feature_tiled = tf.tile(global_feature, [embedded.shape[0],1])
-        global_network_input = tf.concat([embedded, global_feature_tiled], -1)
+        if global_embed_fn is None:
+            global_embed = embedded
+        else:
+            inputs_flat = tf.reshape(inputs, [-1, inputs.shape[-1]])
+            global_embed = global_embed_fn(inputs_flat)
+            if viewdirs is not None:
+                global_embed = tf.concat([global_embed, embedded_dirs], -1)
+
+        global_feature_tiled = tf.tile(global_feature, [global_embed.shape[0], 1])
+        global_network_input = tf.concat([global_embed, global_feature_tiled], -1)
 
         outputs_flat_global = network_fn['global_decoder'](global_network_input)
         outputs_global = tf.reshape(outputs_flat_global, list(inputs.shape[:-1]) + [outputs_flat_global.shape[-1]])
         outputs = [outputs, outputs_global]
-
-        if np.isnan(np.min(outputs[0])):
-            print('nan detected!')
 
     if args.use_depth:
         # if use depth, the model returns 1 channel output
@@ -130,7 +134,12 @@ def create_nerf(args, hwf):
     """Instantiate NeRF's MLP model."""
 
     input_dims = 1 if args.query_z_only else 3
-    embed_fn, input_ch = get_embedder(args.multires, args.i_embed, input_dims=input_dims)
+    embed_fn, input_ch = get_embedder(args.multires * 3, args.i_embed, input_dims=input_dims)
+
+    global_embed_fn = None
+    if args.add_global_feature:
+        # global embed must use all xyz
+        global_embed_fn, global_input_ch = get_embedder(args.multires, args.i_embed, input_dims=3)
 
     input_ch_views = 0
     embeddirs_fn = None
@@ -161,7 +170,7 @@ def create_nerf(args, hwf):
     if args.add_global_feature:
         # add an extra global feature decoder
         global_decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
-                                      input_ch_coord=input_ch, 
+                                      input_ch_coord=global_input_ch, 
                                       input_ch_views=input_ch_views, output_ch=output_ch, 
                                       skips=skips, feature_depth=args.feature_len, mode=args.skip_type)
         if args.fix_decoder:
@@ -187,7 +196,7 @@ def create_nerf(args, hwf):
         if args.add_global_feature:
             # add an extra global feature decoder
             global_decoder_fine = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
-                                        input_ch_coord=input_ch, 
+                                        input_ch_coord=global_input_ch, 
                                         input_ch_views=input_ch_views, output_ch=output_ch, 
                                         skips=skips, feature_depth=args.feature_len, mode=args.skip_type)
             if args.fix_decoder:
@@ -199,7 +208,8 @@ def create_nerf(args, hwf):
         inputs, pixel_coords, input_image, input_pose, viewdirs, network_fn, feature=feature,
         embed_fn=embed_fn,
         embeddirs_fn=embeddirs_fn,
-        netchunk=args.netchunk)
+        netchunk=args.netchunk,
+        global_embed_fn=global_embed_fn)
 
     render_kwargs_train = {
         'network_query_fn': network_query_fn,
@@ -371,12 +381,11 @@ def render_rays(ray_batch,
 
             # take the weighted average of rgb and sum of density
             local_weights = (alpha_non_zero / (alpha_non_zero + alpha_global_non_zero))[...,None]
-            # local_weights = 0.5
             rgb = rgb * local_weights + rgb_global * (1-local_weights)
+
+            local_adjustment = (alpha - 0.5) / 5
+            # alpha = tf.clip_by_value(local_adjustment + alpha_global,0,1)
             alpha = (alpha + alpha_global)/2
-            # rgb = (rgb + rgb_global)/2
-            # alpha = alpha_global
-            # rgb = rgb_global
 
 
         # Compute weight for RGB of each sample along each ray.  A cumprod() is
@@ -801,6 +810,8 @@ def train():
                 prefix = ''
                 if i in obj_split[0]:
                     prefix = 'train'
+                    # skip train objects
+                    continue
                 elif i in obj_split[1]:
                     prefix = 'val'
                 elif i in obj_split[2]:
@@ -897,6 +908,7 @@ def train():
         # [(N-1)*H*W, ro+rd+rgb, 3]
         rays_rgb = np.reshape(rays_rgb, [-1, 3, 3])
         rays_rgb = rays_rgb.astype(np.float32)
+        rays_rgb = np.reshape(rays_rgb,[-1, H, W, 3, 3])
 
     N_iters = args.N_iters
     print('Begin')
@@ -904,7 +916,6 @@ def train():
     print('TEST views are', i_test)
     print('VAL views are', i_val)
         
-    rays_rgb = np.reshape(rays_rgb,[-1, H, W, 3, 3])
 
     # Summary writers
     writer = tf.contrib.summary.create_file_writer(
@@ -942,12 +953,11 @@ def train():
             tape.watch(overall_loss)
 
             for obj_i in obj_ids:
-            # sample rays for this object
+                # sample rays for this object
                 with tape.stop_recording():
                     if args.use_rotation:
                         # in order to apply rotation equivariant, need to pick two images from train set
                         # if training with multiple objects, this part of code needs to be further modifed
-
                         if args.dataset_type == 'shapenet' and sample_nums != (1,0,0):
                             # need to make sure two images are from same object
                             # if using single object, same as lego data
@@ -987,7 +997,16 @@ def train():
                         input('Note that full image train without shuffling has been used!')
 
                     # select rays using pose of target image
-                    batch = tf.gather_nd(rays_rgb[traget_rays_rgb_index], select_inds) # [N_rand,3,3]
+                    if use_batching:
+                        batch = tf.gather_nd(rays_rgb[traget_rays_rgb_index], select_inds) # [N_rand,3,3]
+                    else:
+                        # generate rays_rgb for the selected target image
+                        rays_target = np.array(get_rays_np(H, W, focal, target_pose))
+                        rays_rgb_target = np.concatenate([rays_target, target_img[None, ...]], 0)
+                        rays_rgb_target = np.transpose(rays_rgb_target, [1, 2, 0, 3])
+                        rays_rgb_target = rays_rgb_target.astype(np.float32)
+                        batch = tf.gather_nd(rays_rgb_target, select_inds) # [N_rand,3,3]
+
                     batch_rays, target_s = batch[:,:2,:], batch[:,2,:]
                     batch_rays = tf.transpose(batch_rays,[1,0,2])
 
