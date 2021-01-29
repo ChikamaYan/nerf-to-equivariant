@@ -1,14 +1,14 @@
-expname = car_pixel_nerf_query_depth_test_old
+expname = car_pixel_nerf_query_depth_test_old2
 description = 'pixel nerf with only depth query'
 
 basedir = ./logs
-datadir = ./data/shapenet/depth_100_5/
+datadir = ./data/shapenet/cars_500_30/
 dataset_type = shapenet
 random_seed = 42
 
 use_depth = False
 white_bkgd = True
-shapenet_train = 90
+shapenet_train = 490
 shapenet_val = 10
 shapenet_test = 0
 single_obj_val_num = 5
@@ -33,12 +33,13 @@ N_samples = 16
 N_importance = 16
 separate_fine = True
 perturb = 1.
+no_batching = True
 
 chunk = 20480
 
 i_video = 20000
-i_weights = 5000
-i_img = 500
-N_iters = 10000
-i_log_target = 500
+i_weights = 9999
+i_img = 50
+N_iters = 5000
+i_log_target = 50
 i_testset = 99999999999

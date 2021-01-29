@@ -820,6 +820,8 @@ def train():
         # [(N-1)*H*W, ro+rd+rgb, 3]
         rays_rgb = np.reshape(rays_rgb, [-1, 3, 3])
         rays_rgb = rays_rgb.astype(np.float32)
+        rays_rgb = np.reshape(rays_rgb,[-1, H, W, 3, 3])
+
 
     N_iters = args.N_iters
     print('Begin')
@@ -827,7 +829,6 @@ def train():
     print('TEST views are', i_test)
     print('VAL views are', i_val)
         
-    rays_rgb = np.reshape(rays_rgb,[-1, H, W, 3, 3])
 
     # Summary writers
     writer = tf.contrib.summary.create_file_writer(
@@ -910,7 +911,16 @@ def train():
                         input('Note that full image train without shuffling has been used!')
 
                     # select rays using pose of target image
-                    batch = tf.gather_nd(rays_rgb[traget_rays_rgb_index], select_inds) # [N_rand,3,3]
+                    if use_batching:
+                        batch = tf.gather_nd(rays_rgb[traget_rays_rgb_index], select_inds) # [N_rand,3,3]
+                    else:
+                        # generate rays_rgb for the selected target image
+                        rays_target = np.array(get_rays_np(H, W, focal, target_pose))
+                        rays_rgb_target = np.concatenate([rays_target, target_img[None, ...]], 0)
+                        rays_rgb_target = np.transpose(rays_rgb_target, [1, 2, 0, 3])
+                        rays_rgb_target = rays_rgb_target.astype(np.float32)
+                        batch = tf.gather_nd(rays_rgb_target, select_inds) # [N_rand,3,3]
+
                     batch_rays, target_s = batch[:,:2,:], batch[:,2,:]
                     batch_rays = tf.transpose(batch_rays,[1,0,2])
 
