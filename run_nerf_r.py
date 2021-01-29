@@ -124,9 +124,6 @@ def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network
         # need to manually expand it to 3 channels
         outputs = tf.concat([outputs,outputs,outputs,outputs],axis=-1)
 
-    # if args.add_global_feature:
-    #     return outputs, [feature, global_feature]
-
     return outputs, feature
 
 
@@ -167,6 +164,7 @@ def create_nerf(args, hwf):
 
     models = {'encoder': encoder, 'decoder': decoder}
 
+    global_decoder = None
     if args.add_global_feature:
         # add an extra global feature decoder
         global_decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
@@ -183,6 +181,7 @@ def create_nerf(args, hwf):
 
     # fine model: only fine decoder needed
     decoder_fine  = None
+    global_decoder_fine = None
     if args.N_importance > 0 and args.separate_fine:
         decoder_fine = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
                                       input_ch_coord=input_ch, 
