@@ -69,7 +69,7 @@ def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network
     """
 
     if args.query_z_only:
-        inputs_flat = tf.reshape(inputs[...,-1],[-1,1])
+        inputs_flat =  tf.reshape(tf.norm(inputs,axis=-1),[-1,1]) # tf.reshape(inputs[...,-1],[-1,1])
     else:
         inputs_flat = tf.reshape(inputs, [-1, inputs.shape[-1]])
 
