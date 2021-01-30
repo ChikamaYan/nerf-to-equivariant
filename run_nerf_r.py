@@ -984,7 +984,20 @@ def train():
                         target_pose = input_pose
 
                     # select ray indices for training
-                    coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
+                    if i < args.precrop_iters:
+                        # train on central crop
+                        dH = int(H//2 * args.precrop_frac)
+                        dW = int(W//2 * args.precrop_frac)
+                        coords = tf.stack(tf.meshgrid(
+                            tf.range(H//2 - dH, H//2 + dH), 
+                            tf.range(W//2 - dW, W//2 + dW), 
+                            indexing='ij'), -1)
+                        # a 2D list of coordinates
+                        if i < 10:
+                            print('precrop', dH, dW, coords[0,0], coords[-1,-1])
+                    else:
+                        coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
+
                     coords = tf.reshape(coords, [-1, 2])
 
                     select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)
