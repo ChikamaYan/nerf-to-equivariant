@@ -921,6 +921,7 @@ def train():
         os.path.join(basedir, 'summaries', expname))
     writer.set_as_default()
 
+    #####  Core optimization loop  #####
     for i in range(start, N_iters):
         time0 = time.time()
 
@@ -943,9 +944,10 @@ def train():
             models['encoder'].summary()
 
 
-        #####  Core optimization loop  #####
 
         obj_ids = np.random.choice(obj_split[0], args.N_object)
+        psnr = []
+        psnr0 = []
 
         with tf.GradientTape(persistent=True) as tape:
             overall_loss = tf.zeros(1)
@@ -993,7 +995,7 @@ def train():
                             tf.range(W//2 - dW, W//2 + dW), 
                             indexing='ij'), -1)
                         # a 2D list of coordinates
-                        if i < 10:
+                        if i < 1:
                             print('precrop', dH, dW, coords[0,0], coords[-1,-1])
                     else:
                         coords = tf.stack(tf.meshgrid(tf.range(H), tf.range(W), indexing='ij'), -1)
@@ -1033,13 +1035,13 @@ def train():
                 img_loss = img2mse(rgb, target_s)
                 trans = extras['raw'][..., -1]
                 # what is trans? -- [:,:,4] of the raw outputs from NN 
-                psnr = mse2psnr(img_loss)
+                psnr.append(mse2psnr(img_loss))
 
                 # Add MSE loss for coarse-grained model
                 if 'rgb0' in extras:
                     img_loss0 = img2mse(extras['rgb0'], target_s)
                     img_loss += img_loss0 # how does this work?
-                    psnr0 = mse2psnr(img_loss0)
+                    psnr0.append(mse2psnr(img_loss0))
 
                 # Compute MSE for rotation
                 rot_loss = tf.constant(0,dtype="float32")
@@ -1081,6 +1083,10 @@ def train():
         #####           end            #####
 
         # Rest is logging
+
+        img_loss = overall_loss / args.N_object
+        psnr = tf.math.reduce_mean(psnr)
+        psnr0 = tf.math.reduce_mean(psnr0)
 
         def save_weights(net, prefix, i):
             path = os.path.join(
