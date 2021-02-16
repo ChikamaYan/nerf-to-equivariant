@@ -1,4 +1,4 @@
-expname = car_pixel_nerf_query_depth_with_global_precrop
+expname = car_pixel_nerf_query_depth_more_capacity
 description = 'local feature with depth query on 500 cars, re-run'
 
 basedir = ./logs
@@ -14,24 +14,26 @@ shapenet_test = 0
 single_obj_val_num = 5
 resolution_scale = 0.78125
 no_batching = True
-precrop_iters = 10000
+precrop_iters = 200
 
 use_rotation = True
 use_viewdirs = True
 multires = 6
 multires_views = 0
 
-feature_len = 256
+feature_len = 512
+netwidth = 256
 use_feature_volume = True
 skip_type = add
 freeze_encoder = True
 unfreeze_from = 80
-i_train_encoder = 5000
-add_global_feature = True
+i_train_encoder = 0
+add_global_feature = False
 query_z_only = True
+only_global_feature = False
 
-N_rand = 512
-N_object = 3
+N_rand = 256
+N_object = 2
 N_samples = 16
 N_importance = 16
 separate_fine = True

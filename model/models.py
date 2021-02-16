@@ -274,14 +274,17 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, add
     # but this thing is causing weird behaviour!
     features, global_feature = pretrained_encoder(inputs_images, training=True)
 
-    # pass feature for each pixel to a MLP to shrink size
-    features_original_shape = features.shape
-    features = tf.reshape(features, [-1, features_original_shape[-1]])
-    features = dense(feature_depth)(features)
+    if not args.only_global_feature:
+        # pass feature for each pixel to a MLP to shrink size
+        features_original_shape = features.shape
+        features = tf.reshape(features, [-1, features_original_shape[-1]])
+        features = dense(feature_depth)(features)
 
-    # reshape it to volume
-    volume_shape = (features_original_shape[1:-1] + [feature_depth]).as_list()
-    features = tf.reshape(features, [-1] + volume_shape)
+        # reshape it to volume
+        volume_shape = (features_original_shape[1:-1] + [feature_depth]).as_list()
+        features = tf.reshape(features, [-1] + volume_shape)
+    else:
+        features = features[...,:1]
 
     # do the same thing for global feature
     if use_feature_volume and add_global_feature:

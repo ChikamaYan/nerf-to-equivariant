@@ -53,6 +53,8 @@ def config_parser():
                         help='only use z coordinate (depth) to query local feature')
     parser.add_argument("--add_global_feature", action='store_true',
                         help='Use additional global feature and gloabl decoder')
+    parser.add_argument("--only_global_feature", action='store_true',
+                        help='Use only global feature and gloabl decoder')
     
     # pre-crop options
     parser.add_argument("--precrop_iters", type=int, default=0,

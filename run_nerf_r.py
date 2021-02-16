@@ -99,8 +99,11 @@ def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network
     
     network_input = tf.concat([embedded, features_sampled], -1)
 
-    # removed batchfy for pts here
-    outputs_flat = network_fn['decoder'](network_input)
+    if args.only_global_feature:
+        dim = 1 if args.use_depth else 4
+        outputs_flat = tf.zeros(list(inputs.shape[:-1]) + [dim])
+    else:
+        outputs_flat = network_fn['decoder'](network_input)
     outputs = tf.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
 
     if args.add_global_feature:
@@ -380,18 +383,22 @@ def render_rays(ray_batch,
         if args.add_global_feature:
             # calculate rgb and density for global predictions as well
             rgb_global = tf.math.sigmoid(raw_global[..., :3])
-            alpha_global = raw2alpha(raw_global[..., 3] + noise, dists) 
+            alpha_global = raw2alpha(raw_global[..., 3] + noise, dists)
 
-            alpha_non_zero = tf.where(tf.equal(alpha,0), 1e-10*tf.ones_like(alpha), alpha)
-            alpha_global_non_zero = tf.where(tf.equal(alpha_global,0), 1e-10*tf.ones_like(alpha_global), alpha_global)
+            if args.only_global_feature:
+                rgb = rgb_global
+                alpha = alpha_global
+            else:
+                alpha_non_zero = tf.where(tf.equal(alpha,0), 1e-10*tf.ones_like(alpha), alpha)
+                alpha_global_non_zero = tf.where(tf.equal(alpha_global,0), 1e-10*tf.ones_like(alpha_global), alpha_global)
 
-            # take the weighted average of rgb and sum of density
-            local_weights = (alpha_non_zero / (alpha_non_zero + alpha_global_non_zero))[...,None]
-            rgb = rgb * local_weights + rgb_global * (1-local_weights)
+                # take the weighted average of rgb and sum of density
+                local_weights = (alpha_non_zero / (alpha_non_zero + alpha_global_non_zero))[...,None]
+                rgb = rgb * local_weights + rgb_global * (1-local_weights)
 
-            local_adjustment = (alpha - 0.5) / 5
-            # alpha = tf.clip_by_value(local_adjustment + alpha_global,0,1)
-            alpha = (alpha + alpha_global)/2
+                local_adjustment = (alpha - 0.5) / 5
+                # alpha = tf.clip_by_value(local_adjustment + alpha_global,0,1)
+                alpha = (alpha + alpha_global)/2
 
 
         # Compute weight for RGB of each sample along each ray.  A cumprod() is
@@ -1140,22 +1147,19 @@ def train():
                 overall_loss += img_loss
                 
                 
+        update_vars = []
 
+        if args.only_global_feature:
+             model_names = ['encoder', 'global_decoder', 'global_decoder_fine']
+        else:
+            model_names = ['encoder', 'decoder', 'decoder_fine', 'global_decoder', 'global_decoder_fine']
 
-        enc_vars = models['encoder'].trainable_variables
-        # gradients = tape.gradient(overall_loss, enc_vars)
-        # zips = list(zip(gradients, enc_vars))
-
-        dec_vars = models['decoder'].trainable_variables
-
-        optional_decoders = ['decoder_fine', 'global_decoder', 'global_decoder_fine']
-        for name in optional_decoders:
+        for name in model_names:
             if name in models:
-                dec_vars += models[name].trainable_variables
+                update_vars += models[name].trainable_variables
 
-        all_vars = enc_vars + dec_vars
-        gradients = tape.gradient(overall_loss, all_vars)
-        zips = list(zip(gradients, all_vars))
+        gradients = tape.gradient(overall_loss, update_vars)
+        zips = list(zip(gradients, update_vars))
         optimizer.apply_gradients(zips)
 
         del tape # garbage collect the persistent tape
