@@ -10,8 +10,8 @@ random_seed = 42
 
 use_depth = False
 white_bkgd = True
-shapenet_train = 1
-shapenet_val = 1
+shapenet_train = 490
+shapenet_val = 10
 shapenet_test = 0
 single_obj_val_num = 5
 resolution_scale = 0.78125
