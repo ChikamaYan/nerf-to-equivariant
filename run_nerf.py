@@ -836,14 +836,16 @@ def train():
     expname = args.expname
     os.makedirs(os.path.join(basedir, expname), exist_ok=True)
     f = os.path.join(basedir, expname, 'args.txt')
-    with open(f, 'w') as file:
-        for arg in sorted(vars(args)):
-            attr = getattr(args, arg)
-            file.write('{} = {}\n'.format(arg, attr))
-    if args.config is not None:
-        f = os.path.join(basedir, expname, 'config.txt')
+    # only copy configs if it's not test_model
+    if not args.test_only:
         with open(f, 'w') as file:
-            file.write(open(args.config, 'r').read())
+            for arg in sorted(vars(args)):
+                attr = getattr(args, arg)
+                file.write('{} = {}\n'.format(arg, attr))
+        if args.config is not None:
+            f = os.path.join(basedir, expname, 'config.txt')
+            with open(f, 'w') as file:
+                file.write(open(args.config, 'r').read())
 
     # Create nerf model
     render_kwargs_train, render_kwargs_test, start, grad_vars, models = create_nerf(
@@ -934,6 +936,80 @@ def train():
     writer = tf.contrib.summary.create_file_writer(
         os.path.join(basedir, 'summaries', expname))
     writer.set_as_default()
+
+
+    if args.test_only:
+        # test the loaded model
+        import tqdm
+        import lpips
+        import torch
+        loss_fn_vgg = lpips.LPIPS(net='vgg').cuda() # follows NeRF and pixelNeRF
+
+        mses = []
+        psnrs = []
+        ssims = []
+        lpips_vals = []
+
+        for obj_i in tqdm.tqdm(i_test):
+            target_img = images[obj_i]
+            pose = poses[obj_i, :3, :4]
+
+            rgb, disp, acc, extras = render(H, W, focal, chunk=args.chunk, c2w=pose, **render_kwargs_test)
+
+            mse = img2mse(rgb, target_img)
+            psnr = mse2psnr(mse)
+            ssim = tf.image.ssim(rgb, tf.convert_to_tensor(target_img), max_val=1)
+
+            mses.append(mse)
+            psnrs.append(psnr)
+            ssims.append(ssim)
+
+            # obtain lpips
+            img_rec = rgb.numpy()[None,...] * 2 - 1
+            img_rec = torch.from_numpy(np.transpose(img_rec, [0,3,1,2])).cuda()
+            img_real = target_img[None,...] * 2 - 1
+            img_real = torch.from_numpy(np.transpose(img_real, [0,3,1,2])).cuda()
+            with torch.no_grad():
+                lpip = loss_fn_vgg(img_rec, img_real)
+                lpip = lpip.cpu().detach().numpy()
+                lpips_vals.append(lpip.flatten())
+
+            if args.render_test:
+                testimgdir = os.path.join(basedir, expname, 'tboard_test_imgs')
+                if not os.path.exists(testimgdir):
+                    os.makedirs(testimgdir, exist_ok=True)
+                imageio.imwrite(os.path.join(testimgdir, 'obj_{}.png'.format(obj_i)), to8b(rgb))
+                imageio.imwrite(os.path.join(testimgdir, 'obj_{}_ground_truth.png'.format(obj_i)), to8b(target_img))
+
+        avg_mse = np.average(mses)
+        avg_psnr = np.average(psnrs)
+        avg_ssim = np.average(ssims)
+        avg_lpip = np.average(lpips_vals)
+
+
+        print_text = ""
+        print_text += '=======================================================\n'
+        print_text += f'Evaluation of model {args.expname} after training for {start-1} iterations:\n\n'
+        print_text += f'Model is tested with {len(obj_split[2])} objects and {len(i_test)} images\n'
+        print_text += f'Average test MSE is: {avg_mse}\n'
+        print_text += f'Average test PSNR is: {avg_psnr}\n'
+        print_text += f'Average test SSIM is: {avg_ssim}\n'
+        print_text += f'Average test LPIPS is: {avg_lpip}\n'
+        print(print_text)
+
+        test_result_log = os.path.join(basedir, expname,'test_result.txt')
+
+        if os.path.exists(test_result_log):
+            open_mode = 'a' 
+        else:
+            open_mode = 'w' 
+
+        with open(test_result_log, open_mode) as file:
+            file.write(print_text + '\n\n\n\n')
+
+        return
+
+
 
     for i in range(start, N_iters):
         time0 = time.time()
