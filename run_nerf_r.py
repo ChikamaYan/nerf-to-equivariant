@@ -950,37 +950,44 @@ def train():
         ssims = []
         lpips_vals = []
 
-        for obj_i in tqdm.tqdm(i_test):
-            target_img = images[obj_i]
-            pose = poses[obj_i, :3, :4]
 
-            rgb, disp, acc, feature, extras = render(H, W, focal, chunk=args.chunk, c2w=pose, image=target_img, pose=pose,
-                                            **render_kwargs_test)
+        for obj_i in tqdm.tqdm(obj_split[2]):
+            # modified to use different input image
+            input_i = obj_indices[obj_i][0]
+            input_img = images[input_i]
+            input_pose = poses[input_i, :3, :4]
 
-            mse = img2mse(rgb, target_img)
-            psnr = mse2psnr(mse)
-            ssim = tf.image.ssim(rgb, tf.convert_to_tensor(target_img), max_val=1)
+            for img_i in obj_indices[obj_i]:
+                target_img = images[img_i]
+                pose = poses[img_i, :3, :4]
 
-            mses.append(mse)
-            psnrs.append(psnr)
-            ssims.append(ssim)
+                rgb, disp, acc, feature, extras = render(H, W, focal, chunk=args.chunk, c2w=pose, image=input_img, pose=input_pose,
+                                                **render_kwargs_test)
 
-            # obtain lpips
-            img_rec = rgb.numpy()[None,...] * 2 - 1
-            img_rec = torch.from_numpy(np.transpose(img_rec, [0,3,1,2])).cuda()
-            img_real = target_img[None,...] * 2 - 1
-            img_real = torch.from_numpy(np.transpose(img_real, [0,3,1,2])).cuda()
-            with torch.no_grad():
-                lpip = loss_fn_vgg(img_rec, img_real)
-                lpip = lpip.cpu().detach().numpy()
-                lpips_vals.append(lpip.flatten())
+                mse = img2mse(rgb, target_img)
+                psnr = mse2psnr(mse)
+                ssim = tf.image.ssim(rgb, tf.convert_to_tensor(target_img), max_val=1)
 
-            if args.render_test:
-                testimgdir = os.path.join(basedir, expname, 'tboard_test_imgs')
-                if not os.path.exists(testimgdir):
-                    os.makedirs(testimgdir, exist_ok=True)
-                imageio.imwrite(os.path.join(testimgdir, 'obj_{}.png'.format(obj_i)), to8b(rgb))
-                imageio.imwrite(os.path.join(testimgdir, 'obj_{}_ground_truth.png'.format(obj_i)), to8b(target_img))
+                mses.append(mse)
+                psnrs.append(psnr)
+                ssims.append(ssim)
+
+                # obtain lpips
+                img_rec = rgb.numpy()[None,...] * 2 - 1
+                img_rec = torch.from_numpy(np.transpose(img_rec, [0,3,1,2])).cuda()
+                img_real = target_img[None,...] * 2 - 1
+                img_real = torch.from_numpy(np.transpose(img_real, [0,3,1,2])).cuda()
+                with torch.no_grad():
+                    lpip = loss_fn_vgg(img_rec, img_real)
+                    lpip = lpip.cpu().detach().numpy()
+                    lpips_vals.append(lpip.flatten())
+
+                if args.render_test:
+                    testimgdir = os.path.join(basedir, expname, 'tboard_test_imgs')
+                    if not os.path.exists(testimgdir):
+                        os.makedirs(testimgdir, exist_ok=True)
+                    imageio.imwrite(os.path.join(testimgdir, 'obj_{}.png'.format(obj_i)), to8b(rgb))
+                    imageio.imwrite(os.path.join(testimgdir, 'obj_{}_ground_truth.png'.format(obj_i)), to8b(target_img))
 
         avg_mse = np.average(mses)
         avg_psnr = np.average(psnrs)
@@ -989,7 +996,7 @@ def train():
 
 
         print_text = ""
-        print_text += '=======================================================\n'
+        print_text += '=========================Proper Test==============================\n'
         print_text += f'Evaluation of model {args.expname} after training for {start-1} iterations:\n\n'
         print_text += f'Model is tested with {len(obj_split[2])} objects and {len(i_test)} images\n'
         print_text += f'Average test MSE is: {avg_mse}\n'
