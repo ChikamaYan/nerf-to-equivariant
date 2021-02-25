@@ -132,9 +132,14 @@ def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network
 
 def create_nerf(args, hwf):
     """Instantiate NeRF's MLP model."""
+    if args.query_z_only:
+        input_dims = 1
+        multires = args.multires * 3 + 2
+    else:
+        input_dims = 3
+        multires = args.multires
 
-    input_dims = 1 if args.query_z_only else 3
-    embed_fn, input_ch = get_embedder(args.multires * 3, args.i_embed, input_dims=input_dims)
+    embed_fn, input_ch = get_embedder(multires, args.i_embed, input_dims=input_dims)
 
     global_embed_fn = None
     if args.add_global_feature:
@@ -151,7 +156,8 @@ def create_nerf(args, hwf):
         output_ch = 1
     else:
         output_ch = 4
-    skips = [1,3,5]
+    feature_skips = [1, 3]
+    normal_skips = [5, 7]
     # skip specifies the indices of layers that need skip connection
 
     encoder = init_pixel_nerf_encoder(input_ch_image=(hwf[0],hwf[1],3), feature_depth=args.feature_len, 
@@ -161,7 +167,7 @@ def create_nerf(args, hwf):
     decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
                                       input_ch_coord=input_ch, 
                                       input_ch_views=input_ch_views, output_ch=output_ch, 
-                                      skips=skips, feature_depth=args.feature_len, mode=args.skip_type)
+                                      feature_skips=feature_skips, normal_skips=normal_skips, feature_depth=args.feature_len, mode=args.skip_type)
     if args.fix_decoder:
         decoder.trainable = False
 
@@ -173,7 +179,7 @@ def create_nerf(args, hwf):
         global_decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
                                       input_ch_coord=global_input_ch, 
                                       input_ch_views=input_ch_views, output_ch=output_ch, 
-                                      skips=skips, feature_depth=args.feature_len, mode=args.skip_type)
+                                      feature_skips=feature_skips, normal_skips=normal_skips, feature_depth=args.feature_len, mode=args.skip_type)
         if args.fix_decoder:
             global_decoder.trainable = False
     
@@ -189,7 +195,7 @@ def create_nerf(args, hwf):
         decoder_fine = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
                                       input_ch_coord=input_ch, 
                                       input_ch_views=input_ch_views, output_ch=output_ch, 
-                                      skips=skips, feature_depth=args.feature_len, mode=args.skip_type)
+                                      feature_skips=feature_skips, normal_skips=normal_skips, feature_depth=args.feature_len, mode=args.skip_type)
         if args.fix_decoder:
             decoder_fine.trainable = False
         models['decoder_fine'] = decoder_fine
@@ -200,7 +206,7 @@ def create_nerf(args, hwf):
             global_decoder_fine = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
                                         input_ch_coord=global_input_ch, 
                                         input_ch_views=input_ch_views, output_ch=output_ch, 
-                                        skips=skips, feature_depth=args.feature_len, mode=args.skip_type)
+                                        feature_skips=feature_skips, normal_skips=normal_skips, feature_depth=args.feature_len, mode=args.skip_type)
             if args.fix_decoder:
                 global_decoder_fine.trainable = False
             models['global_decoder_fine'] = global_decoder_fine

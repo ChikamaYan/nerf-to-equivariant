@@ -226,7 +226,9 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, add
 
     if use_feature_volume:
         # get features from middle layers
-        mid_out_layers = ['conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out']
+        # mid_out_layers = ['conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out']
+        mid_out_layers = ['conv1_relu', 'pool1_pool', 'conv2_block3_out','conv3_block4_out']
+        
         # mid_out_layers = ['pool1_pool','conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out', 'conv5_block3_out']
         # mid_out_layers = ['stage1_unit2_conv2', 'stage2_unit2_conv2', 'stage3_unit2_conv2', 'stage4_unit2_conv2']
 
@@ -299,7 +301,7 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, add
 
     return model_encoder
 
-def init_pixel_nerf_decoder(D=8, W=256, input_ch_coord=3, input_ch_views=3, output_ch=4, skips=[2,4,6], feature_depth=256, mode='add'):
+def init_pixel_nerf_decoder(D=8, W=256, input_ch_coord=3, input_ch_views=3, output_ch=4, feature_skips=[1,3], normal_skips=[5], feature_depth=256, mode='add'):
     '''
     Init decoder architecture from pixelNerf paper
     Uses skip connections for several times
@@ -325,36 +327,30 @@ def init_pixel_nerf_decoder(D=8, W=256, input_ch_coord=3, input_ch_views=3, outp
     inputs_views.set_shape([None, input_ch_views])
     features.set_shape([None, feature_depth])
     # concate feature vector with input coordinates
-    decoder_inputs = tf.concat([inputs_pts,inputs_views, features], -1)
+    decoder_inputs = tf.concat([inputs_pts, inputs_views], -1)
 
     if mode == 'add':
         # if using addition skip, need to ensure the shapes are the same
         decoder_inputs = dense(W)(decoder_inputs)
-    elif mode == 'concat':
-        decoder_inputs = dense(W//2)(decoder_inputs)
+        skip_inputs = dense(W)(features)
+        decoder_inputs += skip_inputs
+        residual = decoder_inputs
     else:
         print('skip type not known!')
         return
 
-    decoder_inputs_len = decoder_inputs.shape[-1]
     outputs = decoder_inputs
 
     for i in range(D):
-        if mode == 'add':
-            outputs = dense(W)(outputs)
-            if i in skips:
-                outputs =tf.keras.layers.Add()([outputs, decoder_inputs]) #? divide by 2 actually works! -- might not be the case
-
-        elif mode == 'concat':
-            # use concate skip
-            if i+1 in skips:
-                # next layer has skip connection, need to shrink the size of this ouput
-                outputs = dense(W-decoder_inputs_len)(outputs)
-            else:
-                outputs = dense(W)(outputs)
-            
-            if i in skips:
-                outputs = tf.concat([outputs,decoder_inputs], -1)
+        outputs = dense(W)(outputs)
+        if i in feature_skips:
+            # outputs = tf.keras.layers.Add()([outputs, decoder_inputs])
+            skip_inputs = dense(W)(features)
+            outputs = outputs + skip_inputs + residual
+            residual = outputs
+        elif i in normal_skips:
+            outputs = outputs + residual
+            residual = outputs
 
     outputs = dense(output_ch, act=None)(outputs)
 
@@ -362,3 +358,60 @@ def init_pixel_nerf_decoder(D=8, W=256, input_ch_coord=3, input_ch_views=3, outp
 
     return model_decoder
 
+
+def init_pixel_nerf_decoder_backup(D=8, W=256, input_ch_coord=3, input_ch_views=3, output_ch=4, feature_skips=[1,3], normal_skips=[5], feature_depth=256, mode='add'):
+    '''
+    Init decoder architecture from pixelNerf paper
+    Uses skip connections for several times
+    Take feature of shape (B, feature_depth) as input, feed that through a 128 MLP first
+    '''
+
+    relu = tf.keras.layers.ReLU()
+    def dense(W, act=relu): return tf.keras.layers.Dense(W, activation=act)
+    def conv2d(filter, kernel_size, input_shape): return tf.keras.layers.Conv2D(filter, kernel_size, padding='valid', input_shape=input_shape)
+    def maxpool(pool_size): return tf.keras.layers.MaxPool2D(pool_size)
+    def avgpool(pool_size): return tf.keras.layers.AveragePooling2D(pool_size)
+
+    input_ch_coord = int(input_ch_coord)
+    input_ch_views = int(input_ch_views)
+
+    # -----------------------------------------------
+    # Decoder MLP for predicting rbg and density
+    inputs = tf.keras.Input(shape=(input_ch_coord + input_ch_views + feature_depth,))
+
+    # note that this can be further simplified
+    inputs_pts, inputs_views, features = tf.split(inputs, [input_ch_coord, input_ch_views, feature_depth], -1)
+    inputs_pts.set_shape([None, input_ch_coord])
+    inputs_views.set_shape([None, input_ch_views])
+    features.set_shape([None, feature_depth])
+    # concate feature vector with input coordinates
+    decoder_inputs = tf.concat([inputs_pts, inputs_views], -1)
+
+    if mode == 'add':
+        # if using addition skip, need to ensure the shapes are the same
+        decoder_inputs = dense(W)(decoder_inputs)
+        skip_inputs = dense(W)(features)
+        decoder_inputs += skip_inputs
+        residual = decoder_inputs
+    else:
+        print('skip type not known!')
+        return
+
+    outputs = decoder_inputs
+
+    for i in range(D):
+        outputs = dense(W)(outputs)
+        if i in feature_skips:
+            # outputs = tf.keras.layers.Add()([outputs, decoder_inputs])
+            skip_inputs = dense(W)(features)
+            outputs = outputs + skip_inputs + residual
+            residual = outputs
+        elif i in normal_skips:
+            outputs = outputs + residual
+            residual = outputs
+
+    outputs = dense(output_ch, act=None)(outputs)
+
+    model_decoder = tf.keras.Model(inputs=inputs, outputs=outputs)
+
+    return model_decoder
