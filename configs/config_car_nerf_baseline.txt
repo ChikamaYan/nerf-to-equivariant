@@ -1,7 +1,8 @@
 # The NeRF baseline experiment config
 # need to run with run_nerf.py
+# re-run with 64x64 resolution
 
-expname = car_nerf_baseline
+expname = car_nerf_baseline_resolution_fix
 
 basedir = ./logs
 datadir = ./data/shapenet/cars_500_30/
@@ -14,7 +15,7 @@ shapenet_train = 490
 shapenet_val = 10
 shapenet_test = 0
 single_obj_val_num = 5
-resolution_scale = 0.78125
+resolution_scale = 0.5
 no_batching = True
 # precrop_iters = 200
 
@@ -45,8 +46,8 @@ chunk = 20480
 
 i_video = 20000
 i_weights = 5000
-i_img = 1000
-N_iters = 500000
-i_log_target = 1000
+i_img = 2000
+N_iters = 100001
+i_log_target = 2000
 i_testset = 99999999999
 

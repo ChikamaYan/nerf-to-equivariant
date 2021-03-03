@@ -1,6 +1,6 @@
-# global decoder only baseline
+# global + local
 
-expname = car_global_only_baseline_alt
+expname = car_full_global_local_alt
 
 basedir = ./logs
 datadir = ./data/shapenet/cars_test_240_30/
@@ -32,8 +32,8 @@ freeze_encoder = False
 unfreeze_from = 0
 i_train_encoder = 0
 add_global_feature = True
-query_z_only = False
-only_global_feature = True
+query_z_only = True
+only_global_feature = False
 
 N_rand = 128
 N_object = 4

@@ -124,7 +124,7 @@ def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network
 
     if args.use_depth:
         # if use depth, the model returns 1 channel output
-        # need to manually expand it to 3 channels
+        # need to manually expand it to 4 channels
         outputs = tf.concat([outputs,outputs,outputs,outputs],axis=-1)
 
     return outputs, feature
@@ -600,7 +600,7 @@ def render_rays(ray_batch,
             rgb_map = depth_map
             rgb_map = tf.concat([rgb_map[:,None],rgb_map[:,None],rgb_map[:,None]],axis=-1) # TODO
             # normalize to fit the far/near bound
-            rgb_map = rgb_map / 3.
+            rgb_map = rgb_map / far
 
     ret = {'rgb_map': rgb_map, 'disp_map': disp_map, 'acc_map': acc_map, 'feature': feature}
     if retraw:
@@ -732,18 +732,18 @@ def render_path(render_poses, hwf, chunk, render_kwargs, input_image=None, pose=
 
     t = time.time()
     for i, c2w in enumerate(render_poses):
-        print(i, time.time() - t)
+        # print(i, time.time() - t)
         t = time.time()
         rgb, disp, acc, feature, _ = render(
             H, W, focal, image=input_image, pose=pose, chunk=chunk, c2w=c2w[:3, :4], **render_kwargs)
         rgbs.append(rgb.numpy())
         disps.append(disp.numpy())
-        if i == 0:
-            print(rgb.shape, disp.shape)
+        # if i == 0:
+        #     print(rgb.shape, disp.shape)
 
         if gt_imgs is not None and render_factor == 0:
             p = -10. * np.log10(np.mean(np.square(rgb - gt_imgs[i])))
-            print(p)
+            # print(p)
 
         if savedir is not None:
             rgb8 = to8b(rgbs[-1])
@@ -838,7 +838,6 @@ def train():
 
                 imageio.imwrite(os.path.join(dataimgdir, '{}_{}.png'.format(prefix, obj_names[i])), to8b(images[index]))
 
-        
 
     else:
         print('Unknown dataset type', args.dataset_type, 'exiting')
@@ -1022,6 +1021,29 @@ def train():
             file.write(print_text + '\n\n\n\n')
 
         return
+
+    if args.render_only:
+        import tqdm
+        viddir = os.path.join(basedir, expname, 'render_only_videos')
+        if not os.path.exists(viddir):
+            os.makedirs(viddir, exist_ok=True)
+        
+        # generate video for val object
+        for obj_i in tqdm.tqdm(obj_split[2]):
+            img_i = obj_indices[obj_i][0]
+            rgbs, disps = render_path(render_poses, hwf, args.chunk, render_kwargs_test,input_image=images[img_i], pose=poses[img_i, :3, :4])
+
+            moviebase = os.path.join(
+                viddir, f'{expname}-obj{obj_i}-img{img_i}')
+
+            imageio.mimwrite(moviebase + 'rgb.mp4',
+                                to8b(rgbs), fps=30, quality=8)
+
+            imageio.imwrite(moviebase + 'ground_truth.png', to8b(images[img_i]))
+
+        return
+
+
 
     #####  Core optimization loop  #####
     for i in range(start, N_iters):

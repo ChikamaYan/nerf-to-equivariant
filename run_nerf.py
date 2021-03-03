@@ -924,7 +924,7 @@ def train():
         print('done')
         i_batch = 0
 
-    N_iters = 100000
+    N_iters = 100001
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)

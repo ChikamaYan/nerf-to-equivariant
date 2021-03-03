@@ -1,18 +1,19 @@
-# global decoder only baseline
+# global + local
 
-expname = car_global_only_baseline_alt
+expname = car_full_global_local_alt
 
 basedir = ./logs
 datadir = ./data/shapenet/cars_test_240_30/
 dataset_type = shapenet
 random_seed = 42
 
-test_only = True # this config is for testing only. The model is not updated
+render_only = True # this config is for rendering only. The model is not updated
 use_depth = False
 white_bkgd = True
 shapenet_train = 0
 shapenet_val = 0
-shapenet_test = 240
+shapenet_test = 6
+fix_objects = 1ed012d3232de232473f10e6caaeca56 6bfb04ce0cce6e541a23fcecd6e4f34e 7a2e5acd08aa624bc23a72fe560e6753 7d59691881b13cc5702956de1b65c053 37be90be848362188d793015f499272b a6f1c25f9bfd8db931108d3d728dcae8
 single_obj_val_num = 5
 resolution_scale = 0.5
 no_batching = True
@@ -32,8 +33,8 @@ freeze_encoder = False
 unfreeze_from = 0
 i_train_encoder = 0
 add_global_feature = True
-query_z_only = False
-only_global_feature = True
+query_z_only = True
+only_global_feature = False
 
 N_rand = 128
 N_object = 4
