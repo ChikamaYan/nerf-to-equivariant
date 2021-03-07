@@ -1,25 +1,16 @@
-# DepthNeRF with local decoder only
-# alter version that uses a network closer to original pixelNeRF paper
+# render real
 
-expname = car_depth_nerf_local_only_alt
+expname = car_full_global_local_alt
 
 basedir = ./logs
-datadir = ./data/shapenet/cars_test_240_30/
-dataset_type = shapenet
+datadir = ./data/stanford_car_cropped
+dataset_type = stanford
 random_seed = 42
+render_only = True
+render_elevation = 15
 
-test_only = True # this config is for testing only. The model is not updated
-shapenet_train = 0
-shapenet_val = 0
-shapenet_test = 240
-
-
-use_depth = False
 white_bkgd = True
-single_obj_val_num = 5
-resolution_scale = 0.5
 no_batching = True
-precrop_iters = 30000
 
 use_rotation = True
 use_viewdirs = True
@@ -34,7 +25,7 @@ skip_type = add
 freeze_encoder = False
 unfreeze_from = 0
 i_train_encoder = 0
-add_global_feature = False
+add_global_feature = True
 query_z_only = True
 only_global_feature = False
 

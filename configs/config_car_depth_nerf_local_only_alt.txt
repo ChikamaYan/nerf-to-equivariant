@@ -1,18 +1,35 @@
 # DepthNeRF with local decoder only
 # alter version that uses a network closer to original pixelNeRF paper
 
-expname = car_depth_nerf_local_only_alt
+expname = car_depth_nerf_local_only_more_sample
 
+# --------- test setting ------------
 basedir = ./logs
-datadir = ./data/shapenet/cars_500_30/
+datadir = ./data/shapenet/cars_test_240_30/
 dataset_type = shapenet
 random_seed = 42
 
+test_only = True # this config is for testing only. The model is not updated
+shapenet_train = 0
+shapenet_val = 0
+shapenet_test = 240
+
+# ---------------------------------
+
+# --------- train setting---------
+# basedir = ./logs
+# datadir = ./data/shapenet/cars_500_30/
+# dataset_type = shapenet
+# random_seed = 42
+
+# shapenet_train = 490
+# shapenet_val = 10
+# shapenet_test = 0
+
+# -------------------------------
+
 use_depth = False
 white_bkgd = True
-shapenet_train = 490
-shapenet_val = 10
-shapenet_test = 0
 single_obj_val_num = 5
 resolution_scale = 0.5
 no_batching = True
@@ -36,9 +53,9 @@ query_z_only = True
 only_global_feature = False
 
 N_rand = 128
-N_object = 4
-N_samples = 16
-N_importance = 16
+N_object = 2
+N_samples = 32
+N_importance = 32
 separate_fine = True
 perturb = 1.
 

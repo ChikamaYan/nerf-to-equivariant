@@ -19,6 +19,7 @@ from utils.load_llff import load_llff_data
 from utils.load_deepvoxels import load_dv_data
 from utils.load_blender import load_blender_data
 from utils.load_shapenet import load_shapenet_data
+from utils.load_stanford_car import load_stanford_car
 
 from model.embedder import *
 from model.models import *
@@ -838,6 +839,19 @@ def train():
 
                 imageio.imwrite(os.path.join(dataimgdir, '{}_{}.png'.format(prefix, obj_names[i])), to8b(images[index]))
 
+    elif args.dataset_type == 'stanford':
+        images, poses, render_poses, hwf = load_stanford_car(
+                args.datadir, args=args)
+        print('Loaded stanford cars', images.shape,
+              render_poses.shape, hwf, args.datadir)
+
+        i_train, i_val, i_test = [[],[], list(range(len(images)))]
+        obj_split = [[],[],[0]]
+        obj_indices = [[i] for i in i_test]
+
+        near = NEAR
+        far = FAR
+
 
     else:
         print('Unknown dataset type', args.dataset_type, 'exiting')
@@ -868,7 +882,7 @@ def train():
     os.makedirs(os.path.join(basedir, expname), exist_ok=True)
 
     # only copy configs if it's not test_model
-    if not args.test_only:
+    if not args.test_only and not args.render_only:
         f = os.path.join(basedir, expname, 'args.txt')
         with open(f, 'w') as file:
             for arg in sorted(vars(args)):
@@ -1034,7 +1048,7 @@ def train():
             rgbs, disps = render_path(render_poses, hwf, args.chunk, render_kwargs_test,input_image=images[img_i], pose=poses[img_i, :3, :4])
 
             moviebase = os.path.join(
-                viddir, f'{expname}-obj{obj_i}-img{img_i}')
+                viddir, f'{expname}-obj{obj_i}-img{img_i}-elevation{args.render_elevation}')
 
             imageio.mimwrite(moviebase + 'rgb.mp4',
                                 to8b(rgbs), fps=30, quality=8)
