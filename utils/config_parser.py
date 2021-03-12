@@ -84,6 +84,8 @@ def config_parser():
 
     parser.add_argument("--render_only", action='store_true',
                         help='do not optimize, reload weights and render out render_poses path')
+    parser.add_argument("--gt_render", action='store_true',
+                        help='in rendering mode, render from pose with ground truth')
     parser.add_argument("--render_elevation", type=float, default=30.,
                         help='elevation for rendering pose. only used in stanford dataset')
     parser.add_argument("--test_only", action='store_true',

@@ -858,27 +858,76 @@ def train():
     render_kwargs_train.update(bds_dict)
     render_kwargs_test.update(bds_dict)
 
-    # Short circuit if only rendering out from trained model
+    # # Short circuit if only rendering out from trained model
+    # if args.render_only:
+    #     print('RENDER ONLY')
+    #     if args.render_test:
+    #         # render_test switches to test poses
+    #         images = images[i_test]
+    #     else:
+    #         # Default is smoother render_poses path
+    #         # ?
+    #         images = None
+
+    #     testsavedir = os.path.join(basedir, expname, 'renderonly_{}_{:06d}'.format(
+    #         'test' if args.render_test else 'path', start))
+    #     os.makedirs(testsavedir, exist_ok=True)
+    #     print('test poses shape', render_poses.shape)
+
+    #     rgbs, _ = render_path(render_poses, hwf, args.chunk, render_kwargs_test,
+    #                           gt_imgs=images, savedir=testsavedir, render_factor=args.render_factor)
+    #     print('Done rendering', testsavedir)
+    #     imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'),
+    #                      to8b(rgbs), fps=30, quality=8)
+
+    #     return
+
     if args.render_only:
-        print('RENDER ONLY')
-        if args.render_test:
-            # render_test switches to test poses
-            images = images[i_test]
-        else:
-            # Default is smoother render_poses path
-            # ?
-            images = None
+        import tqdm
+        viddir = os.path.join(basedir, expname, 'test_renderings')
+        if args.gt_render:
+            viddir = os.path.join(basedir, expname, 'gt_renderings')
+        if not os.path.exists(viddir):
+            os.makedirs(viddir, exist_ok=True)
+        
+        # generate video for test object
+        for obj_i in tqdm.tqdm(obj_split[2]):
+            INPUT_VIEW_ID = 0
+            img_i = obj_indices[obj_i][INPUT_VIEW_ID]
+            if not args.gt_render:
+                rgbs, disps = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
 
-        testsavedir = os.path.join(basedir, expname, 'renderonly_{}_{:06d}'.format(
-            'test' if args.render_test else 'path', start))
-        os.makedirs(testsavedir, exist_ok=True)
-        print('test poses shape', render_poses.shape)
+                render_dir = os.path.join(viddir, obj_names[obj_i])
 
-        rgbs, _ = render_path(render_poses, hwf, args.chunk, render_kwargs_test,
-                              gt_imgs=images, savedir=testsavedir, render_factor=args.render_factor)
-        print('Done rendering', testsavedir)
-        imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'),
-                         to8b(rgbs), fps=30, quality=8)
+                if not os.path.exists(render_dir):
+                    os.makedirs(render_dir, exist_ok=True)
+
+                moviebase = os.path.join(render_dir, 'rendering_')
+                
+                imageio.mimwrite(moviebase + 'rgb.mp4',
+                                    to8b(rgbs), fps=30, quality=8)
+
+                imageio.imwrite(moviebase + 'ground_truth.png', to8b(images[img_i]))
+
+                for i in range(len(rgbs)):
+                    imageio.imwrite(moviebase + f'{i}.png', to8b(rgbs[i]))
+            else:
+                # render w.r.t ground truth
+                TARGET_VIEW_ID = 1
+                target_i = obj_indices[obj_i][TARGET_VIEW_ID]
+
+                rgb, _, _, _ = render(
+                    H, W, focal, chunk=args.chunk, 
+                    c2w=poses[target_i, :3, :4],
+                    **render_kwargs_test)
+
+                render_dir = os.path.join(viddir, obj_names[obj_i])
+                if not os.path.exists(render_dir):
+                    os.makedirs(render_dir, exist_ok=True)
+
+                imageio.imwrite(os.path.join(render_dir, f'recon_[{INPUT_VIEW_ID},{TARGET_VIEW_ID}].png'),to8b(rgb))
+                imageio.imwrite(os.path.join(render_dir, f'input_[{INPUT_VIEW_ID},{TARGET_VIEW_ID}].png'),to8b(images[img_i]))
+                imageio.imwrite(os.path.join(render_dir, f'target_[{INPUT_VIEW_ID},{TARGET_VIEW_ID}].png'),to8b(images[target_i]))
 
         return
 

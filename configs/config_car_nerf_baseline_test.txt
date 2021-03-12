@@ -9,12 +9,13 @@ datadir = ./data/shapenet/cars_test_240_30/
 dataset_type = shapenet
 random_seed = 42
 
-test_only = True # this config is for testing only. The model is not updated
+render_only = True # this config is for testing only. The model is not updated
+gt_render = True # generate renderings with ground truth
 use_depth = False
 white_bkgd = True
 shapenet_train = 0
 shapenet_val = 0
-shapenet_test = 240
+shapenet_test = 50
 single_obj_val_num = 5
 resolution_scale = 0.5
 no_batching = True
