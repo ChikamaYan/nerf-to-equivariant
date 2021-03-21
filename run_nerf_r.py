@@ -19,6 +19,7 @@ from utils.load_llff import load_llff_data
 from utils.load_deepvoxels import load_dv_data
 from utils.load_blender import load_blender_data
 from utils.load_shapenet import load_shapenet_data
+from utils.load_srn_shapenet import load_srn_shapenet_data
 from utils.load_stanford_car import load_stanford_car
 
 from model.embedder import *
@@ -852,6 +853,25 @@ def train():
         near = NEAR
         far = FAR
 
+    elif args.dataset_type == 'srn_shapenet':
+        sample_nums = (args.shapenet_train, args.shapenet_val, args.shapenet_test)
+        images, poses, render_poses, hwf, i_split, obj_indices, obj_names, obj_split = load_srn_shapenet_data(
+                        args.datadir, resolution_scale=args.resolution_scale,
+                        sample_nums=sample_nums, args=args)
+        # images: (n,H,W,C) array containing all images
+        # i_split: list of length 3, each element is a numpy array containing all the image ids for train/val/test
+        # obj_indices: (n_obj,n_view) array, n_obj is the number of objects, n_view is number of view points/images for each object
+        # obj_names: (n_obj) array containing the name of each object
+        # obj_split: list of len 3, each element is a numpy array containing all the object ids for train/val/test
+        
+        print('Loaded SRN shapenet', images.shape,
+              render_poses.shape, hwf, args.datadir)
+        i_train, i_val, i_test = i_split
+
+        # Matches with blender renderer depth clip
+        near = NEAR = 0.8
+        far = FAR = 1.8
+
     else:
         print('Unknown dataset type', args.dataset_type, 'exiting')
         return
@@ -859,8 +879,8 @@ def train():
     # remove the alpha channel from image
     if args.white_bkgd and images[0].shape[-1] > 3:
         images = images[..., :3]*images[..., -1:] + (1.-images[..., -1:])
-    else:
-        images = images[..., :3]
+    # else:
+    #     images = images[..., :3]
 
     if args.train_num is not None and args.train_num < len(i_train):
         i_train = i_train[:args.train_num]
@@ -969,8 +989,8 @@ def train():
 
 
         for obj_i in tqdm.tqdm(obj_split[2]):
-            # modified to use different input image
-            input_i = obj_indices[obj_i][0]
+            INPUT_VIEW_ID = 64 # use view 64 in shapenet test for rendering
+            input_i = obj_indices[obj_i][INPUT_VIEW_ID]
             input_img = images[input_i]
             input_pose = poses[input_i, :3, :4]
 
@@ -1044,7 +1064,7 @@ def train():
         
         # generate video for test object
         for obj_i in tqdm.tqdm(obj_split[2]):
-            INPUT_VIEW_ID = 0
+            INPUT_VIEW_ID = 64
             img_i = obj_indices[obj_i][INPUT_VIEW_ID]
             if not args.gt_render:
                 # render a full video
@@ -1127,7 +1147,7 @@ def train():
                     if args.use_rotation:
                         # in order to apply rotation equivariant, need to pick two images from train set
                         # if training with multiple objects, this part of code needs to be further modifed
-                        if args.dataset_type == 'shapenet' and sample_nums != (1,0,0):
+                        if  sample_nums != (1,0,0):
                             # need to make sure two images are from same object
                             # if using single object, same as lego data
                             img_i, target_i = np.random.choice(obj_indices[obj_i], 2, replace=False)
