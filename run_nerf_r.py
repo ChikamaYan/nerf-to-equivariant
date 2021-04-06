@@ -1085,7 +1085,7 @@ def train():
                     imageio.imwrite(moviebase + f'{i}.png', to8b(rgbs[i]))
             else:
                 # render w.r.t ground truth
-                TARGET_VIEW_ID = 1
+                TARGET_VIEW_ID = 84
                 target_i = obj_indices[obj_i][TARGET_VIEW_ID]
 
                 rgb, _, _, _, _ = render(

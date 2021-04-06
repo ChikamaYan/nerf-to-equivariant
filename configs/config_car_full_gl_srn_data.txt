@@ -9,6 +9,7 @@ random_seed = 42
 
 # test_only = True
 render_only = True
+gt_render = True
 use_depth = False
 white_bkgd = True
 shapenet_train = 0 # -1 means all test data
