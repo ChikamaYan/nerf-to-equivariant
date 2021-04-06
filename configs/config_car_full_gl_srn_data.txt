@@ -1,0 +1,53 @@
+# global + local on SRN dataset
+
+expname = car_full_global_local_srn_data
+
+basedir = ./logs
+datadir = ../SRN_shapenet_car/
+dataset_type = srn_shapenet
+random_seed = 42
+
+# test_only = True
+render_only = True
+gt_render = True
+use_depth = False
+white_bkgd = True
+shapenet_train = 0 # -1 means all test data
+shapenet_val = 0
+shapenet_test = 50
+resolution_scale = 0.5
+no_batching = True
+precrop_iters = 100
+
+use_rotation = True
+use_viewdirs = True
+multires = 6
+multires_views = 0
+
+feature_len = 512
+netwidth = 256
+lrate = 5e-5
+use_feature_volume = True
+skip_type = add
+freeze_encoder = False
+unfreeze_from = 0
+i_train_encoder = 0
+add_global_feature = True
+query_z_only = True
+only_global_feature = False
+
+N_rand = 128
+N_object = 4
+N_samples = 16
+N_importance = 16
+separate_fine = True
+perturb = 1.
+
+chunk = 20480
+
+i_video = 20000
+i_weights = 2500
+i_img = 2500
+N_iters = 200001
+i_log_target = 2500
+i_testset = 99999999999

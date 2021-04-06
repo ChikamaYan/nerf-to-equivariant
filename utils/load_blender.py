@@ -4,8 +4,17 @@ import numpy as np
 import imageio 
 import json
 
+# blender coord system
+# z
+# ^   ^ y
+# |  /
+# | /
+# |/
+# ---------> x
+
+# OpenGL coord system
 # y
-# ^   ^ z
+# ^   ^ -z
 # |  /
 # | /
 # |/

@@ -1,10 +1,15 @@
-from run_nerf_helpers import *
+from model.models import *
+import numpy as np
 
-encoder, decoder = init_nerf_r_models(
-        D=8, W=256, input_ch_image= (200,200,3),
-        input_ch_coord=60, output_ch=3, skips=[4],
-        input_ch_views=30, use_viewdirs=True)
 
-print(encoder.summary())
+encoder = init_pixel_nerf_encoder(use_global=False)
+
+encoder.summary()
+
+
+
+# obj = np.load('data/ImageNet-ResNet18.npz', encoding='latin1')
+
+# print(obj)
 
 # print(model.trainable_variables)

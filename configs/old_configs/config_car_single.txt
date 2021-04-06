@@ -1,6 +1,6 @@
-expname = car_blender_no_rot_mlp_large_train_bug_fix
+expname = car_single
 basedir = ./logs
-datadir = ./data/shapenet/ShapeNetRendering/04256520/
+datadir = ./data/shapenet/blender_renderings/
 dataset_type = shapenet
 random_seed = 42
 
@@ -19,12 +19,11 @@ separate_fine = False
 chunk = 1024
 netchunk = 1024
 
-i_video = 80000
+i_video = 50000000
 i_weights = 1000
 i_img = 1000
-i_testset = 100000
-i_log_target = 1000
 
-shapenet_train = 5
-shapenet_val = 2
-shapenet_test = 1
+shapenet_train = 1
+shapenet_val = 0
+shapenet_test = 0
+fix_objects = 4b858be7de4e9eb1546b7395fb17f97e

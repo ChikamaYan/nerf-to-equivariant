@@ -1,0 +1,45 @@
+expname = car_pixel_nerf_fix_feature_test_opt
+description = 'experiment with pixel nerf with rgb with 1 view test time optimisation'
+
+basedir = ./logs
+datadir = ./data/shapenet/depth_100_5/
+dataset_type = shapenet
+random_seed = 42
+
+use_depth = False
+white_bkgd = True
+shapenet_train = 1
+shapenet_val = 0
+shapenet_test = 0
+fix_objects = 3441a476b459799d36dba14110ef43e4
+test_optimise_num = 1
+single_obj_val_num = 5
+resolution_scale = .5
+
+use_rotation = False
+use_viewdirs = True
+multires = 6
+multires_views = 0
+
+feature_len = 256
+use_feature_volume = True
+skip_type = add
+freeze_encoder = False
+unfreeze_from = 80
+i_train_encoder = 10000
+fix_decoder = False
+
+N_rand = 1024
+N_samples = 16
+N_importance = 16
+separate_fine = True
+perturb = 1.
+
+chunk = 20480
+
+i_video = 50
+i_weights = 9999999
+i_img = 50
+N_iters = 480500
+i_log_target = 9999999
+i_testset = 99999999999
