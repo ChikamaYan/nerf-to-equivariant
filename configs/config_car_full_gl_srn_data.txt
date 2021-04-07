@@ -7,15 +7,13 @@ datadir = ../SRN_shapenet_car/
 dataset_type = srn_shapenet
 random_seed = 42
 
-# test_only = True
-render_only = True
-gt_render = True
+render_only = False
 use_depth = False
 white_bkgd = True
-shapenet_train = 0 # -1 means all test data
+shapenet_train = 500 # -1 means all test data
 shapenet_val = 0
-shapenet_test = 50
-resolution_scale = 0.5
+shapenet_test = 10
+resolution_scale = 0.5 # not used
 no_batching = True
 precrop_iters = 100
 

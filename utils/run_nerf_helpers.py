@@ -1,3 +1,6 @@
+# Helper functions
+# Copied from NeRF code repository
+
 import os
 import sys
 import tensorflow as tf

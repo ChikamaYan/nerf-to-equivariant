@@ -1,3 +1,6 @@
+# Original code for NeRF to load blender type data 
+# Not used, kept purely for reference
+
 import os
 import tensorflow as tf
 import numpy as np

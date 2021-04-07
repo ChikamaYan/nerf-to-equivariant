@@ -1,3 +1,5 @@
+# Script for deleting old checkpoints
+
 import os
 
 def del_ckpts(basedir='./logs/', expname=''):    

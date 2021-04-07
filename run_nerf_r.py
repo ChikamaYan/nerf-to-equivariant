@@ -1,5 +1,6 @@
-# experimental run that takes two images + transformation matrix + 3D coordinate
-# will only run on config_lego_rotation
+# Training code for our models
+# The function create_nerf, render_rays, render, render_path are mostly the same to the original NeRF model, 
+# because the volume rendering is carried out in the same way
 
 import os
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
@@ -15,8 +16,6 @@ import time
 
 from utils.run_nerf_helpers import *
 from utils.config_parser import config_parser
-from utils.load_llff import load_llff_data
-from utils.load_deepvoxels import load_dv_data
 from utils.load_blender import load_blender_data
 from utils.load_shapenet import load_shapenet_data
 from utils.load_srn_shapenet import load_srn_shapenet_data

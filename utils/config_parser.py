@@ -1,4 +1,5 @@
-
+# Defines the config parameters
+# Most of the parameters are the same from the original NeRF implementation
 
 def config_parser():
 

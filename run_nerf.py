@@ -1,3 +1,7 @@
+# This is the training code from the original NeRF model, with minimal modification
+# It's kept for the training and evaluation of NeRF baseline
+
+
 import os
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
