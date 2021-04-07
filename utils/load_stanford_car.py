@@ -1,6 +1,7 @@
 # load images from cropped stanford car dataset
 # the dataset only contains real life cars with no object/pose labels
 # only for rendering
+# the function pose_spherical is modified from original NeRF code
 
 import os
 import numpy as np
