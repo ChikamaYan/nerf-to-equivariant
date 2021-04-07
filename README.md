@@ -4,7 +4,11 @@
 > 
 > Please note that the code is originally developed based on NeRF's code repository at https://github.com/bmild/nerf
 >
-> A large portion of their code is reused.
+> A large portion of their code is therefore re-used.
+> 
+> A rough reference for re-used code can be found at the beginning for each file.
+>
+> For a detailed and exact reference on code re-write and re-use, please refer to the commit history, as this code repository was forked directly from the NeRF repository.
 
 To setup the conda environment:
 ```
