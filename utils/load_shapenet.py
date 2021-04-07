@@ -1,3 +1,6 @@
+# Loading my ShapeNet data
+# the function pose_spherical is modified from original NeRF code
+
 import os
 import numpy as np
 import tensorflow as tf
