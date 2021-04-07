@@ -1,3 +1,6 @@
+# Class for positional embedding
+# Copied from original NeRF code
+
 import os
 import sys
 import tensorflow as tf

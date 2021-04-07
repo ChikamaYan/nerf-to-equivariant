@@ -47,14 +47,7 @@ def compute_features(input_image, input_pose, encoder):
     input_image = np.reshape(input_image,[1, -1])
     input_image = tf.cast(input_image, tf.float32)
 
-    # flatten input pose and add it to inputs
-    # for pixelNerf architecture, no input pose is used
-    # input_pose = np.reshape(input_pose,[1, -1])
-    # input_pose = tf.cast(input_pose, tf.float32)
-
-    # inputs = tf.concat([input_image, input_pose], -1)
     feature = encoder(input_image)
-    # feature = tf.reshape(feature, [1] + image_original_shape[:-1] + [feature.shape[-1]])
     return feature
 
 
@@ -262,10 +255,6 @@ def create_nerf(args, hwf):
         ft_weights_decoder = ft_weights.replace('encoder', 'decoder')
         print('Reloading decoder from', ft_weights_decoder)
         models['decoder'].set_weights(np.load(ft_weights_decoder, allow_pickle=True))
-
-        # ft_weights_optimizer = ft_weights.replace('encoder', 'optimizer')
-        # print('Reloading optimizer from', ft_weights_optimizer)
-        # models['optimizer'].set_weights(np.load(ft_weights_optimizer, allow_pickle=True))
 
         start = int(ft_weights[-10:-4]) + 1
         print('Resetting step to', start)
@@ -758,7 +747,7 @@ def render_path(render_poses, hwf, chunk, render_kwargs, input_image=None, pose=
 
 
 def train():
-    global args
+    global args, NEAR, FAR
 
     parser = config_parser()
     args = parser.parse_args()
@@ -1100,10 +1089,6 @@ def train():
                 imageio.imwrite(os.path.join(render_dir, f'input_[{INPUT_VIEW_ID},{TARGET_VIEW_ID}].png'),to8b(images[img_i]))
                 imageio.imwrite(os.path.join(render_dir, f'target_[{INPUT_VIEW_ID},{TARGET_VIEW_ID}].png'),to8b(images[target_i]))
 
-
-
-                
-
         return
 
 
@@ -1232,16 +1217,6 @@ def train():
 
                 # Compute MSE for rotation
                 rot_loss = tf.constant(0,dtype="float32")
-
-                # if args.use_rotation:
-                #     feature_target = compute_features(target_img, target_pose, render_kwargs_train['network_fn']['encoder'])
-                #     rot_loss = tf.keras.losses.MeanSquaredError()(feature_target, feature)
-
-                #     # compute the sum of loss
-                #     overall_loss += rot_loss
-
-                # accumulate loss for each object
-                # need to check
                 overall_loss += img_loss
                 
                 
@@ -1298,8 +1273,6 @@ def train():
                     viddir, '{}_spiral_{:06d}_train_'.format(expname, i))
                 imageio.mimwrite(moviebase + 'rgb.mp4',
                                 to8b(rgbs), fps=30, quality=8)
-                # imageio.mimwrite(moviebase + 'disp.mp4',
-                #                 to8b(disps / np.max(disps)), fps=30, quality=8)
                 imageio.imwrite(os.path.join(viddir, '{:06d}_ground_truth_train.png'.format(i)), to8b(target_img))
             
             # generate video for val object
@@ -1311,17 +1284,8 @@ def train():
                 viddir, '{}_spiral_{:06d}_val_'.format(expname, i))
             imageio.mimwrite(moviebase + 'rgb.mp4',
                              to8b(rgbs), fps=30, quality=8)
-            # imageio.mimwrite(moviebase + 'disp.mp4',
-            #                  to8b(disps / np.max(disps)), fps=30, quality=8)
             imageio.imwrite(os.path.join(viddir, '{:06d}_ground_truth_val.png'.format(i)), to8b(images[img_i]))
 
-            # if args.use_viewdirs:
-            #     render_kwargs_test['c2w_staticcam'] = render_poses[0][:3, :4]
-            #     rgbs_still, _ = render_path(
-            #         render_poses, hwf, args.chunk, render_kwargs_test,input_image=input_img)
-            #     render_kwargs_test['c2w_staticcam'] = None
-            #     imageio.mimwrite(moviebase + 'rgb_still.mp4',
-            #                      to8b(rgbs_still), fps=30, quality=8)
 
         if i % args.i_testset == 0 and i > 0:
             testsavedir = os.path.join(
@@ -1348,11 +1312,9 @@ def train():
             psnr = mse2psnr(mse)
 
             with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-                # tf.contrib.summary.image('rgb_train', to8b(rgb)[tf.newaxis])
 
                 tf.contrib.summary.scalar('psnr_train_img', psnr)
                 tf.contrib.summary.scalar('loss_train_img', mse)
-                # tf.contrib.summary.image('rgb_train_img', target_img[tf.newaxis])
 
 
         if i % args.i_print == 0 or i < 10 or i % args.i_img == 0:
@@ -1400,25 +1362,9 @@ def train():
 
                     with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
 
-                        # tf.contrib.summary.image('rgb_obj_{}'.format(obj_i), to8b(rgb)[tf.newaxis])
-                        # tf.contrib.summary.image(
-                        #     'disp_obj_{}'.format(obj_i), disp[tf.newaxis, ..., tf.newaxis])
-                        # tf.contrib.summary.image(
-                        #     'acc_obj_{}'.format(obj_i), acc[tf.newaxis, ..., tf.newaxis])
-
                         tf.contrib.summary.scalar('psnr_holdout_obj_{}'.format(obj_i), psnr)
                         tf.contrib.summary.scalar('loss_holdout_obj_{}'.format(obj_i), mse)
-                        # tf.contrib.summary.image('rgb_holdout_obj_{}'.format(obj_i), target[tf.newaxis])
 
-                    # if args.N_importance > 0:
-
-                        # with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-                        #     tf.contrib.summary.image(
-                        #         'rgb0_obj_{}'.format(obj_i), to8b(extras['rgb0'])[tf.newaxis])
-                        #     tf.contrib.summary.image(
-                        #         'disp0_obj_{}'.format(obj_i), extras['disp0'][tf.newaxis, ..., tf.newaxis])
-                        #     tf.contrib.summary.image(
-                        #         'z_std_obj_{}'.format(obj_i), extras['z_std'][tf.newaxis, ..., tf.newaxis])
 
         global_step.assign_add(1)
 
