@@ -186,7 +186,7 @@ def create_nerf(args, hwf):
     decoder_fine  = None
     global_decoder_fine = None
     if args.N_importance > 0 and args.separate_fine:
-        decoder_fine = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
+        decoder_fine = init_decoder(D=args.netdepth, W=args.netwidth, 
                                       input_ch_coord=input_ch, 
                                       input_ch_views=input_ch_views, output_ch=output_ch, 
                                       feature_skips=feature_skips, normal_skips=normal_skips, feature_depth=args.feature_len, mode=args.skip_type)
@@ -197,7 +197,7 @@ def create_nerf(args, hwf):
 
         if args.add_global_feature:
             # add an extra global feature decoder
-            global_decoder_fine = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
+            global_decoder_fine = init_decoder(D=args.netdepth, W=args.netwidth, 
                                         input_ch_coord=global_input_ch, 
                                         input_ch_views=input_ch_views, output_ch=output_ch, 
                                         feature_skips=feature_skips, normal_skips=normal_skips, feature_depth=args.feature_len, mode=args.skip_type)
@@ -816,7 +816,7 @@ def train():
             for i in range(len(obj_indices)):
                 index = obj_indices[i][0]
 
-                prefix = ''
+                prefix = ""
                 if i in obj_split[0]:
                     prefix = 'train'
                     # skip train objects
@@ -1114,7 +1114,6 @@ def train():
                     layer.trainable = False
 
             models['encoder'].summary()
-
 
 
         obj_ids = np.random.choice(obj_split[0], args.N_object)
