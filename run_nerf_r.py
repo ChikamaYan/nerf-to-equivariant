@@ -31,7 +31,10 @@ NEAR = 0.
 FAR = 1.5
 
 def batchify(fn, chunk):
-    """Constructs a version of 'fn' that applies to smaller batches."""
+    """
+    Constructs a version of 'fn' that applies to smaller batches.
+    Function from NeRF: https://github.com/bmild/nerf
+    """
     # chunck = batch size
     if chunk is None:
         return fn
@@ -125,7 +128,11 @@ def run_network(inputs, pixel_coords, input_image, input_pose, viewdirs, network
 
 
 def create_nerf(args, hwf):
-    """Instantiate NeRF's MLP model."""
+    """
+    Instantiate model.
+
+    Function modified from NeRF: https://github.com/bmild/nerf
+    """
     if args.query_z_only:
         input_dims = 1
         multires = args.multires * 3 + 2
@@ -325,6 +332,8 @@ def render_rays(ray_batch,
       acc0: See acc_map. Output for coarse model.
       z_std: [num_rays]. Standard deviation of distances along ray for each
         sample.
+        
+    Function from NeRF: https://github.com/bmild/nerf
     """
 
     def raw2outputs(raw, z_vals, rays_d):
@@ -641,6 +650,8 @@ def render(H, W, focal,
       disp_map: [batch_size]. Disparity map. Inverse of depth.
       acc_map: [batch_size]. Accumulated opacity (alpha) along a ray.
       extras: dict with everything returned by render_rays().
+
+    Function from NeRF: https://github.com/bmild/nerf
     """
 
     if c2w is not None:
@@ -708,7 +719,10 @@ def render(H, W, focal,
 
 
 def render_path(render_poses, hwf, chunk, render_kwargs, input_image=None, pose=None, gt_imgs=None, savedir=None, render_factor=0):
-
+    '''
+        Render for several poses
+        Function from NeRF: https://github.com/bmild/nerf
+    '''
     H, W, focal = hwf
 
     if render_factor != 0:
@@ -747,6 +761,10 @@ def render_path(render_poses, hwf, chunk, render_kwargs, input_image=None, pose=
 
 
 def train():
+    '''
+        Main training function
+        Function heavily modified from NeRF: https://github.com/bmild/nerf
+    '''
     global args, NEAR, FAR
 
     parser = config_parser()
