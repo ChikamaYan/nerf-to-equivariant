@@ -154,11 +154,11 @@ def create_nerf(args, hwf):
     normal_skips = [5, 7]
     # skip specifies the indices of layers that need skip connection
 
-    encoder = init_pixel_nerf_encoder(input_ch_image=(hwf[0],hwf[1],3), feature_depth=args.feature_len, 
+    encoder = init_encoder(input_ch_image=(hwf[0],hwf[1],3), feature_depth=args.feature_len, 
                                       add_global_feature=args.add_global_feature, args=args)
     # feature_depth = encoder.outputs[0].shape[-1]
 
-    decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
+    decoder = init_decoder(D=args.netdepth, W=args.netwidth, 
                                       input_ch_coord=input_ch, 
                                       input_ch_views=input_ch_views, output_ch=output_ch, 
                                       feature_skips=feature_skips, normal_skips=normal_skips, feature_depth=args.feature_len, mode=args.skip_type)
@@ -170,7 +170,7 @@ def create_nerf(args, hwf):
     global_decoder = None
     if args.add_global_feature:
         # add an extra global feature decoder
-        global_decoder = init_pixel_nerf_decoder(D=args.netdepth, W=args.netwidth, 
+        global_decoder = init_decoder(D=args.netdepth, W=args.netwidth, 
                                       input_ch_coord=global_input_ch, 
                                       input_ch_views=input_ch_views, output_ch=output_ch, 
                                       feature_skips=feature_skips, normal_skips=normal_skips, feature_depth=args.feature_len, mode=args.skip_type)

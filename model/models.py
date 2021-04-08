@@ -57,11 +57,10 @@ def init_nerf_model(D=8, W=256, input_ch=3, input_ch_views=3, output_ch=4, skips
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
     return model
 
-def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, add_global_feature=False, args=None):
+def init_encoder(input_ch_image=(200, 200, 3), feature_depth=256, add_global_feature=False, args=None):
 
     
     '''
-    Init encoder from paper pixel nerf
     Uses a ResNet 50 pretrained auto-encoder, outputs feature from each layer concatenated
 
     Input:
@@ -72,7 +71,6 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, add
     relu = tf.keras.layers.ReLU()
     def dense(W, act=relu): return tf.keras.layers.Dense(W, activation=act)
 
-
     # first model: resnet 50
     inputs_encoder = tf.keras.Input(shape=(np.prod(input_ch_image),))
     inputs_images = tf.reshape(inputs_encoder,[-1] + list(input_ch_image))
@@ -80,19 +78,11 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, add
     inputs_images = tf.keras.applications.resnet.preprocess_input(inputs_images)
     pretrained_model = tf.keras.applications.ResNet50(include_top=False, input_shape=input_ch_image, pooling='avg')
 
-    # ResNet18, preprocess_input = Classifiers.get('resnet18')
-    # pretrained_model = ResNet18(include_top=False, input_shape=input_ch_image, pooling='avg', weights='imagenet')
-    # inputs_images = preprocess_input(inputs_images)
-
     use_feature_volume = args.use_feature_volume if args is not None else True
 
     if use_feature_volume:
         # get features from middle layers
-        # mid_out_layers = ['conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out']
         mid_out_layers = ['conv1_relu', 'pool1_pool', 'conv2_block3_out','conv3_block4_out']
-        
-        # mid_out_layers = ['pool1_pool','conv2_block3_out', 'conv3_block4_out', 'conv4_block6_out', 'conv5_block3_out']
-        # mid_out_layers = ['stage1_unit2_conv2', 'stage2_unit2_conv2', 'stage3_unit2_conv2', 'stage4_unit2_conv2']
 
         features = []    
         for layer in mid_out_layers:
@@ -111,16 +101,6 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, add
     else:
         pretrained_encoder = pretrained_model
 
-    # trainable_encoder = not args.freeze_encoder if args is not None else True
-    # pretrained_encoder.trainable = False
-    # if trainable_encoder:
-    #     # unfreeze top layers that are not batch norm
-    #     unfreeze_from = args.unfreeze_from if args is not None else 0
-    #     assert unfreeze_from <= len(pretrained_encoder.layers)
-    #     for layer in pretrained_encoder.layers[unfreeze_from:]:
-    #         if not layer.name.endswith('bn'):
-    #             layer.trainable = True
-
     pretrained_encoder.trainable = not args.freeze_encoder if args is not None else True
 
     if pretrained_encoder.trainable:
@@ -134,8 +114,6 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, add
             if layer.name.endswith('bn'):
                 layer.trainable = False
 
-    # run in inference mode to prevent updating the bactNorm layers
-    # but this thing is causing weird behaviour!
     features, global_feature = pretrained_encoder(inputs_images, training=True)
 
     if not args.only_global_feature:
@@ -163,12 +141,7 @@ def init_pixel_nerf_encoder(input_ch_image=(200, 200, 3), feature_depth=256, add
 
     return model_encoder
 
-def init_pixel_nerf_decoder(D=8, W=256, input_ch_coord=3, input_ch_views=3, output_ch=4, feature_skips=[1,3], normal_skips=[5], feature_depth=256, mode='add'):
-    '''
-    Init decoder architecture from pixelNerf paper
-    Uses skip connections for several times
-    Take feature of shape (B, feature_depth) as input, feed that through a 128 MLP first
-    '''
+def init_decoder(D=8, W=256, input_ch_coord=3, input_ch_views=3, output_ch=4, feature_skips=[1,3], normal_skips=[5], feature_depth=256, mode='add'):
 
     relu = tf.keras.layers.ReLU()
     def dense(W, act=relu): return tf.keras.layers.Dense(W, activation=act)
@@ -179,8 +152,6 @@ def init_pixel_nerf_decoder(D=8, W=256, input_ch_coord=3, input_ch_views=3, outp
     input_ch_coord = int(input_ch_coord)
     input_ch_views = int(input_ch_views)
 
-    # -----------------------------------------------
-    # Decoder MLP for predicting rbg and density
     inputs = tf.keras.Input(shape=(input_ch_coord + input_ch_views + feature_depth,))
 
     # note that this can be further simplified
