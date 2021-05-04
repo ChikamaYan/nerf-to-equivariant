@@ -1,5 +1,16 @@
 # DualNeRF
 
+![plot](demo/1abeca7159db7ed9f200a72c9245aee7/rendering_ground_truth.png)
+![plot](demo/1abeca7159db7ed9f200a72c9245aee7/rendering_rgb.gif)
+
+![plot](demo/1ae530f49a914595b491214a0cc2380/rendering_ground_truth.png)
+![plot](demo/1ae530f49a914595b491214a0cc2380/rendering_rgb.gif)
+
+![plot](demo/12941cb870df79b9815337ac44abb964/rendering_ground_truth.png)
+![plot](demo/12941cb870df79b9815337ac44abb964/rendering_rgb.gif)
+
+
+
 > This is the MEng thesis work of Tianhao (Walter) Wu
 > 
 > Please note that the code is originally developed based on NeRF's code repository at https://github.com/bmild/nerf
